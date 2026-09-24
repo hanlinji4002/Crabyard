@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; img-src 'self' data: blob: https:; connect-src 'self' http: https:; frame-src *;">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Crabyard</title>
+  <link rel="icon" type="image/png" href="icon.png">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="xterm.css">
+</head>
+<body>
+  <div id="titlebar">
+    <div id="titlebar-side"></div>
+    <div id="titlebar-main">
+      <div id="clawd-tub-slot"></div>
+    </div>
+  </div>
+  <div id="app">
+    <div id="sidebar">
+      <div id="sidebar-header">
+        <button id="btn-toggle-sidebar" class="icon-btn" title="Toggle Sidebar (Cmd+B)">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2.4"/><line x1="9" y1="4" x2="9" y2="20"/></svg>
+        </button>
+        <div class="sidebar-header-actions">
+          <button id="btn-toggle-showcase" class="icon-btn" aria-pressed="false">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M10.2 9.4v5.2l4.4-2.6z" fill="currentColor"/></svg>
+          </button>
+          <button id="btn-preferences" class="icon-btn" title="Preferences">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
+          <button id="btn-add-project" class="icon-btn primary" title="New Project (Ctrl+Shift+P)">
+            <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="3.5" x2="8" y2="12.5"/><line x1="3.5" y1="8" x2="12.5" y2="8"/></svg>
+          </button>
+        </div>
+      </div>
+      <div id="sidebar-showcase" class="clawd-showcase" hidden></div>
+      <div id="sidebar-content">
+        <div id="conv-toolbar"></div>
+        <div id="project-list"></div>
+      </div>
+      <div id="sidebar-active-sessions"></div>
+    </div>
+    <div id="sidebar-resize-handle"></div>
+    <div id="main-area">
+      <div id="tab-bar">
+        <div id="tab-list"></div>
+        <div id="git-status"></div>
+        <div id="tab-actions">
+          <button id="btn-toggle-terminal" class="icon-btn" title="Toggle Terminal (Ctrl+`)" aria-label="Toggle Terminal"></button>
+          <button id="btn-toggle-swarm" class="icon-btn" aria-pressed="false"></button>
+          <button id="btn-toggle-clawd" class="icon-btn" aria-pressed="false">
+            <svg viewBox="0 -1 15 11" width="15" height="11" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M2 0h11v7H2zM0 3h2v2H0zM13 3h2v2h-2zM3 7h1v2H3zM5 7h1v2H5zM9 7h1v2H9zM11 7h1v2h-1zM4 2h1v2H4zM10 2h1v2h-1z"/></svg>
+          </button>
+          <button id="btn-toggle-turn-changes" class="icon-btn" aria-pressed="false">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M9 10h6"/><path d="M12 7v6"/><path d="M9 17h6"/></svg>
+          </button>
+          <button id="btn-toggle-session-changes" class="icon-btn" aria-pressed="false">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7h-3a2 2 0 0 1-2-2V2"/><path d="M9 18a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h7l4 4v10a2 2 0 0 1-2 2Z"/><path d="M3 7.6v12.8A1.6 1.6 0 0 0 4.6 22h9.8"/></svg>
+          </button>
+          <button id="btn-toggle-skills" class="icon-btn" aria-pressed="false">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 3.5l1.9 4.9 4.9 1.9-4.9 1.9L11 17.1l-1.9-4.9-4.9-1.9 4.9-1.9z"/><path d="M18.5 14.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg>
+          </button>
+          <button id="btn-toggle-live-usage" class="icon-btn" aria-pressed="false">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8" opacity="0.35"/><path d="M12 4a8 8 0 0 1 7.6 10.5"/></svg>
+          </button>
+          <button id="btn-toggle-usage" class="icon-btn" aria-pressed="false">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" y1="20" x2="6" y2="13"/><line x1="12" y1="20" x2="12" y2="5"/><line x1="18" y1="20" x2="18" y2="10"/></svg>
+          </button>
+          <div class="split-btn-group new-session-group">
+            <button id="btn-add-session" class="btn-primary new-session-main" title="New Session (Ctrl+Shift+N)">
+              <span class="new-session-icon" aria-hidden="true">+</span>New session
+            </button>
+            <button id="btn-add-session-menu" class="btn-primary new-session-caret" title="New Custom Session" aria-label="New Custom Session">&#x25BE;</button>
+          </div>
+        </div>
+      </div>
+      <div id="terminal-container"></div>
+      <div id="project-terminal-resize-handle" class="hidden"></div>
+      <div id="bottom-row">
+        <div id="project-terminal-panel" class="hidden">
+          <div id="project-terminal-header">
+            <span class="project-terminal-title">Terminal</span>
+            <div class="project-terminal-header-actions">
+              <button id="btn-new-terminal" class="icon-btn" title="New Terminal">+</button>
+              <button id="btn-close-terminal" class="icon-btn" title="Close Terminal">&times;</button>
+            </div>
+          </div>
+          <div id="project-terminal-body">
+            <div id="project-terminal-container"></div>
+            <div id="project-terminal-sidebar" class="hidden"></div>
+          </div>
+        </div>
+        <div id="bottom-dock-split" hidden></div>
+        <aside id="bottom-usage-dock" hidden></aside>
+      </div>
+    </div>
+    <div id="usage-panel-resize-handle"></div>
+    <aside id="usage-panel">
+      <section id="usage-clawd-pane" class="usage-pane"></section>
+      <section id="usage-turn-pane" class="usage-pane"></section>
+      <section id="usage-session-pane" class="usage-pane"></section>
+      <section id="usage-skills-pane" class="usage-pane"></section>
+      <section id="usage-live-pane" class="usage-pane"></section>
+      <section id="usage-totals-pane" class="usage-pane"></section>
+    </aside>
+  </div>
+
+  <div id="modal-overlay" class="hidden">
+    <div id="modal">
+      <div id="modal-title"></div>
+      <div id="modal-body"></div>
+      <div id="modal-actions">
+        <button id="modal-cancel" class="btn-secondary">Cancel</button>
+        <button id="modal-confirm" class="btn-primary">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="index.js"></script>
+</body>
+</html>

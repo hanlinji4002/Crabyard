@@ -1,0 +1,437 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import { BrowserWindow } from 'electron';
+import { isWin, pythonBin } from './platform';
+
+export const STATUS_DIR = path.join(os.tmpdir(), 'vibeyard');
+export const SCRIPT_DIR = path.join(os.homedir(), '.vibeyard', 'run');
+const STATUSLINE_SCRIPT = path.join(SCRIPT_DIR, isWin ? 'statusline.cmd' : 'statusline.sh');
+
+// Status files any provider may write into STATUS_DIR, keyed by Vibeyard's
+// session id. This array drives cleanup, polling and resync generically.
+//
+// `.name` is a provider-facing channel, not Claude-private: write
+// `{"name": "…", "session_id": "…"}` and the tab adopts that title. Claude
+// fills it from its statusLine payload (see buildStatusLinePython); another
+// provider can populate it from any source, the way codex-session-watcher.ts
+// already writes `.sessionid` without hooks.
+const KNOWN_EXTENSIONS = ['.status', '.sessionid', '.cost', '.name', '.toolfailure', '.events', '.subagents'];
+
+let watcher: fs.FSWatcher | null = null;
+let pollInterval: ReturnType<typeof setInterval> | null = null;
+const lastMtimes = new Map<string, number>();
+const eventFileOffsets = new Map<string, number>();
+const knownSessionIds = new Set<string>();
+
+export function registerSession(sessionId: string): void {
+  knownSessionIds.add(sessionId);
+}
+
+export function unregisterSession(sessionId: string): void {
+  knownSessionIds.delete(sessionId);
+}
+
+function isKnownExtension(filename: string): boolean {
+  return KNOWN_EXTENSIONS.some(ext => filename.endsWith(ext));
+}
+
+export function getStatusLineScriptPath(): string {
+  return STATUSLINE_SCRIPT;
+}
+
+/**
+ * Body of the statusLine helper, shared by the POSIX and Windows branches.
+ *
+ * Claude invokes the statusLine command on every render, piping it the session
+ * JSON on stdin. We extract `cost`, `context_window`, `session_id` and
+ * `session_name` (plus model id, effort, thinking and fast-mode for the session
+ * controls, and the plan's `rate_limits` for the Current usage panel) and drop
+ * them into STATUS_DIR for the watcher to pick up.
+ * The `.name` payload carries the CLI session id alongside the title so a
+ * stale title can be told apart from the current conversation's.
+ *
+ * `.sessionid` and `.name` both go through `write_if_changed`, which writes only
+ * when the content differs (and removes the file for an empty blob — how a
+ * cleared `.name` is retracted; `.sessionid` never passes one). The statusLine
+ * fires on every render, and each write reaches the renderer as an IPC that ends
+ * in a `persist()` plus a full `renderLayout()` — which used to detach and
+ * re-insert the terminal pane many times a second, blurring the in-pane find bar
+ * and breaking mouse selection. `.cost` is exempt: its payload genuinely changes
+ * on nearly every render, and it lands on a persist-only path with no re-render.
+ *
+ * It also prints one line back to Claude Code — a claude-hud style context
+ * bar (`Context ████░░░░░░ 36% (356.1k / 1M)`) that Claude renders under its
+ * prompt, so the context reading lives inside each conversation. Written as
+ * UTF-8 bytes (the bar glyphs would crash a non-UTF-8 stdout) and fully
+ * guarded: a bad payload drops the line, never the status files below.
+ *
+ * Installed as a real `.py` file on every platform and invoked by path, never
+ * inlined into the shell command — see the module docstring in
+ * `hook-commands.ts` for why inlining Python is fragile here.
+ *
+ * `statusDir` is embedded via `JSON.stringify`, whose escapes (`\\`, `\"`,
+ * `\uXXXX`) are all valid Python ones. A raw literal would break on an
+ * apostrophe in the path — e.g. a Windows user named O'Brien — and a
+ * SyntaxError here silently kills cost, context, sessionid and name at once.
+ */
+export function buildStatusLinePython(statusDir: string): string {
+  return `import sys,json,os
+try:
+    d=json.load(sys.stdin)
+except:
+    sys.exit(0)
+sid=os.environ.get('CLAUDE_IDE_SESSION_ID','')
+if not sid:
+    sys.exit(0)
+def hud_tokens(n):
+    if n>=1000000:
+        return ('%.2f'%(n/1000000.0)).rstrip('0').rstrip('.')+'M'
+    if n>=1000:
+        s='%.1f'%(n/1000.0)
+        return (s[:-2] if s.endswith('.0') else s)+'k'
+    return str(int(n))
+def hud_line(c):
+    size=c.get('context_window_size') or 0
+    u=c.get('current_usage') or {}
+    used=(u.get('input_tokens') or 0)+(u.get('cache_creation_input_tokens') or 0)+(u.get('cache_read_input_tokens') or 0)
+    pct=c.get('used_percentage')
+    if not isinstance(pct,(int,float)) or pct<=0:
+        pct=used*100.0/size if size else 0
+    pct=max(0,min(100,int(pct+0.5)))
+    filled=int(pct/10.0+0.5)
+    color='\\033[31m' if pct>=85 else ('\\033[33m' if pct>=70 else '\\033[32m')
+    line='\\033[2mContext\\033[0m '+color+u'\\u2588'*filled+'\\033[2m'+u'\\u2591'*(10-filled)+'\\033[0m '+color+str(pct)+'%\\033[0m'
+    if size:
+        line+=' \\033[2m('+hud_tokens(used)+' / '+hud_tokens(size)+')\\033[0m'
+    return line
+try:
+    hc=d.get('context_window')
+    if isinstance(hc,dict) and hc:
+        sys.stdout.buffer.write((hud_line(hc)+'\\n').encode('utf-8'))
+        sys.stdout.flush()
+except Exception:
+    pass
+status_dir=${JSON.stringify(statusDir)}
+cost=d.get('cost',{})
+ctx=d.get('context_window',{})
+minfo=d.get('model')
+minfo=minfo if isinstance(minfo,dict) else {}
+model=minfo.get('display_name','')
+if cost or ctx or model:
+    payload={'cost':cost,'context_window':ctx}
+    if model:
+        payload['model']=model
+    if minfo.get('id'):
+        payload['model_id']=minfo.get('id')
+    eff=d.get('effort')
+    if isinstance(eff,dict) and eff.get('level'):
+        payload['effort']=eff.get('level')
+    th=d.get('thinking')
+    if isinstance(th,dict) and 'enabled' in th:
+        payload['thinking']=bool(th.get('enabled'))
+    if 'fast_mode' in d:
+        payload['fast_mode']=bool(d.get('fast_mode'))
+    rl=d.get('rate_limits')
+    if isinstance(rl,dict):
+        payload['rate_limits']=rl
+    with open(os.path.join(status_dir,sid+'.cost'),'w') as f:
+        json.dump(payload,f)
+def write_if_changed(path,blob):
+    prev=''
+    try:
+        with open(path) as f:
+            prev=f.read()
+    except:
+        pass
+    if prev==blob:
+        return
+    try:
+        if blob:
+            with open(path,'w') as f:
+                f.write(blob)
+        else:
+            os.remove(path)
+    except:
+        pass
+claude_sid=d.get('session_id','')
+if claude_sid:
+    write_if_changed(os.path.join(status_dir,sid+'.sessionid'),claude_sid)
+name=str(d.get('session_name') or '').strip()
+write_if_changed(os.path.join(status_dir,sid+'.name'),json.dumps({'name':name,'session_id':claude_sid}) if name else '')
+`;
+}
+
+export function installStatusLineScript(): void {
+  fs.mkdirSync(STATUS_DIR, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(SCRIPT_DIR, { recursive: true, mode: 0o700 });
+
+  const pyPath = path.join(SCRIPT_DIR, 'statusline.py');
+  fs.writeFileSync(pyPath, buildStatusLinePython(STATUS_DIR), { mode: 0o755 });
+
+  // Use forward slashes — backslashes inside double-quoted .cmd strings can
+  // interfere with cmd.exe's >> redirection parsing on some Windows versions.
+  const logPath = `${STATUS_DIR.replace(/\\/g, '/')}/statusline.log`;
+  const script = isWin
+    ? `@echo off\r\n${pythonBin} "${pyPath}" 2>>"${logPath}"\r\n`
+    : `#!/bin/sh\n${pythonBin} "${pyPath}" 2>>"${logPath}"\n`;
+
+  fs.writeFileSync(STATUSLINE_SCRIPT, script, { mode: 0o755 });
+}
+
+function extractSessionId(filename: string): string {
+  if (filename.endsWith('.toolfailure')) {
+    const base = filename.replace('.toolfailure', '');
+    const lastDash = base.lastIndexOf('-');
+    return lastDash !== -1 ? base.slice(0, lastDash) : base;
+  }
+  for (const ext of KNOWN_EXTENSIONS) {
+    if (filename.endsWith(ext)) return filename.slice(0, -ext.length);
+  }
+  return '';
+}
+
+function handleFileChange(win: BrowserWindow, filename: string): void {
+  const extractedId = extractSessionId(filename);
+  if (extractedId && !knownSessionIds.has(extractedId)) return;
+
+  // In-flight subagent counter — hook-internal only, never forwarded to the
+  // renderer. Included in KNOWN_EXTENSIONS solely for cleanup.
+  if (filename.endsWith('.subagents')) return;
+
+  if (filename.endsWith('.status')) {
+    const sessionId = filename.replace('.status', '');
+    const filePath = path.join(STATUS_DIR, filename);
+
+    try {
+      const raw = fs.readFileSync(filePath, 'utf-8').trim();
+      // Format: "HookEvent:status" (e.g. "PostToolUse:working") or legacy plain status
+      const colonIdx = raw.indexOf(':');
+      const hookName = colonIdx !== -1 ? raw.slice(0, colonIdx) : '';
+      const content = colonIdx !== -1 ? raw.slice(colonIdx + 1) : raw;
+      if (content === 'working' || content === 'waiting' || content === 'completed' || content === 'input') {
+        if (!win.isDestroyed()) {
+          win.webContents.send('session:hookStatus', sessionId, content, hookName);
+        }
+      }
+    } catch {
+      // File may have been deleted between watch event and read
+    }
+  } else if (filename.endsWith('.sessionid')) {
+    const sessionId = filename.replace('.sessionid', '');
+    const filePath = path.join(STATUS_DIR, filename);
+
+    try {
+      const cliSessionId = fs.readFileSync(filePath, 'utf-8').trim();
+      if (cliSessionId && !win.isDestroyed()) {
+        win.webContents.send('session:cliSessionId', sessionId, cliSessionId);
+        // Backward compatibility
+        win.webContents.send('session:claudeSessionId', sessionId, cliSessionId);
+      }
+    } catch {
+      // File may have been deleted between watch event and read
+    }
+  } else if (filename.endsWith('.cost')) {
+    const sessionId = filename.replace('.cost', '');
+    const filePath = path.join(STATUS_DIR, filename);
+
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8').trim();
+      const costData = JSON.parse(content);
+      if (!win.isDestroyed()) {
+        win.webContents.send('session:costData', sessionId, costData);
+      }
+    } catch {
+      // File may have been deleted or contain invalid JSON
+    }
+  } else if (filename.endsWith('.name')) {
+    const sessionId = extractedId;
+    const filePath = path.join(STATUS_DIR, filename);
+
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8').trim();
+      const { name, session_id: cliSessionId } = JSON.parse(content);
+      if (typeof name === 'string' && name && !win.isDestroyed()) {
+        // cliSessionId lets the renderer drop a title left over from a
+        // conversation that has since been cleared — resyncAllSessions
+        // re-reads every file, so a stale .name would otherwise re-title
+        // the freshly reset tab.
+        win.webContents.send(
+          'session:sessionName',
+          sessionId,
+          name,
+          typeof cliSessionId === 'string' ? cliSessionId : '',
+        );
+      }
+    } catch {
+      // File may have been deleted or contain invalid JSON (partial write)
+    }
+  } else if (filename.endsWith('.toolfailure')) {
+    const sessionId = extractedId;
+    const filePath = path.join(STATUS_DIR, filename);
+
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8').trim();
+      const data = JSON.parse(content);
+      if (!win.isDestroyed()) {
+        win.webContents.send('session:toolFailure', sessionId, data);
+      }
+    } catch {
+      // File may have been deleted or contain invalid JSON
+    }
+    // Always attempt cleanup — each failure is a one-shot event
+    try { fs.unlinkSync(filePath); } catch { /* already gone */ }
+  } else if (filename.endsWith('.events')) {
+    const sessionId = filename.replace('.events', '');
+    const filePath = path.join(STATUS_DIR, filename);
+    const offset = eventFileOffsets.get(sessionId) ?? 0;
+
+    let fd: number | null = null;
+    try {
+      fd = fs.openSync(filePath, 'r');
+      const stat = fs.fstatSync(fd);
+      if (stat.size > offset) {
+        const buf = Buffer.alloc(stat.size - offset);
+        fs.readSync(fd, buf, 0, buf.length, offset);
+        eventFileOffsets.set(sessionId, stat.size);
+
+        const lines = buf.toString('utf-8').trim().split('\n').filter(Boolean);
+        const events = [];
+        for (const line of lines) {
+          try { events.push(JSON.parse(line)); } catch { /* skip malformed */ }
+        }
+        if (events.length > 0 && !win.isDestroyed()) {
+          win.webContents.send('session:inspectorEvents', sessionId, events);
+        }
+      }
+    } catch {
+      // File may not exist yet
+    } finally {
+      if (fd !== null) {
+        try { fs.closeSync(fd); } catch { /* already closed */ }
+      }
+    }
+  }
+}
+
+function pollForChanges(win: BrowserWindow): void {
+  if (win.isDestroyed()) return;
+
+  try {
+    const files = fs.readdirSync(STATUS_DIR);
+    for (const filename of files) {
+      if (!isKnownExtension(filename)) continue;
+      const filePath = path.join(STATUS_DIR, filename);
+      try {
+        const stat = fs.statSync(filePath);
+        const mtime = stat.mtimeMs;
+        const prev = lastMtimes.get(filename);
+        // `!==`, not `>`: `.name` is deleted and rewritten on /clear, and a
+        // recreated file can carry a coarser, non-increasing timestamp.
+        if (prev !== mtime) {
+          lastMtimes.set(filename, mtime);
+          if (prev !== undefined) {
+            handleFileChange(win, filename);
+          }
+        }
+      } catch {
+        // File may have been deleted between readdir and stat
+      }
+    }
+  } catch {
+    // Directory may not exist yet
+  }
+}
+
+function startPolling(win: BrowserWindow): void {
+  stopPolling();
+  pollInterval = setInterval(() => pollForChanges(win), 2000);
+}
+
+function stopPolling(): void {
+  if (pollInterval) {
+    clearInterval(pollInterval);
+    pollInterval = null;
+  }
+  lastMtimes.clear();
+}
+
+function restartWatcher(win: BrowserWindow): void {
+  if (watcher) {
+    watcher.close();
+    watcher = null;
+  }
+
+  fs.mkdirSync(STATUS_DIR, { recursive: true, mode: 0o700 });
+
+  watcher = fs.watch(STATUS_DIR, (_eventType, filename) => {
+    if (!filename) {
+      resyncAllSessions(win);
+      return;
+    }
+    handleFileChange(win, filename);
+  });
+
+  startPolling(win);
+}
+
+export function resyncAllSessions(win: BrowserWindow): void {
+  if (win.isDestroyed()) return;
+
+  try {
+    const files = fs.readdirSync(STATUS_DIR);
+    for (const filename of files) {
+      if (isKnownExtension(filename)) {
+        handleFileChange(win, filename);
+      }
+    }
+  } catch {
+    // Directory may not exist yet
+  }
+}
+
+export function restartAndResync(win: BrowserWindow): void {
+  restartWatcher(win);
+  resyncAllSessions(win);
+}
+
+export function startWatching(win: BrowserWindow): void {
+  restartWatcher(win);
+}
+
+export function cleanupSessionStatus(sessionId: string): void {
+  for (const ext of KNOWN_EXTENSIONS) {
+    try {
+      fs.unlinkSync(path.join(STATUS_DIR, `${sessionId}${ext}`));
+    } catch {
+      // Already gone
+    }
+  }
+  eventFileOffsets.delete(sessionId);
+  unregisterSession(sessionId);
+}
+
+export function cleanupAll(): void {
+  stopPolling();
+  knownSessionIds.clear();
+  if (watcher) {
+    watcher.close();
+    watcher = null;
+  }
+  cleanupDir(STATUS_DIR, isKnownExtension);
+  // SCRIPT_DIR is intentionally kept — scripts are idempotent and reinstalled
+  // on launch. Deleting them races with CLI processes that outlive the app.
+}
+
+function cleanupDir(dir: string, shouldUnlink: (filename: string) => boolean): void {
+  try {
+    for (const file of fs.readdirSync(dir)) {
+      if (shouldUnlink(file)) {
+        try { fs.unlinkSync(path.join(dir, file)); } catch { /* already gone */ }
+      }
+    }
+    try { fs.rmSync(dir, { recursive: true }); } catch { /* may not be empty */ }
+  } catch {
+    // Directory may not exist
+  }
+}

@@ -1,0 +1,187 @@
+/* ============================================================================
+   Claude warm theme (fork)
+   Replaces upstream's cool-slate + iris "Studio" look with Claude's palette:
+   warm near-black / ivory surfaces, a clay accent (#d97757, pressed Crail
+   #c15f3c), Cloudy-toned secondary text, Pampas #f4f3ee in light mode, and a
+   serif for display text — Latin in Charter / Iowan Old Style / New York (all
+   ship with macOS, so the CSP's font-src 'self' needs no new files), CJK falling
+   back to PingFang. Loaded last: it overrides the tokens in base.css plus the
+   few gradients and glows that were hard-coded elsewhere.
+   ============================================================================ */
+
+:root {
+  --font-serif: 'Tiempos Text', 'Charter', 'Iowan Old Style', ui-serif, 'New York', Georgia,
+    'PingFang SC', 'Hiragino Sans GB', serif;
+}
+
+:root,
+[data-theme="dark"] {
+  --bg-primary: #262624;   /* main canvas */
+  --bg-secondary: #1f1e1d; /* sidebar, rails */
+  --bg-tertiary: #30302e;  /* cards / raised panels */
+  --bg-hover: #3a3936;
+
+  --text-primary: #faf9f5;
+  --text-secondary: #c2c0b6;
+  --text-muted: #9c9a92;
+
+  --accent: #d97757;
+  --accent-dim: #c15f3c;
+  --accent-soft: rgba(217, 119, 87, 0.14);
+  --accent-fg: #ffffff;
+  --accent-text: #ffffff;
+
+  --border: rgba(222, 220, 209, 0.12);
+  --border-subtle: rgba(222, 220, 209, 0.07);
+  --border-strong: rgba(222, 220, 209, 0.2);
+
+  --status-working: var(--accent);
+  --status-waiting: #c9a86a;
+  --status-input: #e8b04a;
+  --status-completed: #8fa864;
+  --bookmark: #d9a441;
+  --color-warning: #d9a441;
+  --color-critical: #d4604f;
+
+  --tab-active: #262624;
+  --tab-inactive: #1f1e1d;
+  --pane-focus: var(--accent);
+  --pane-unfocus: var(--border);
+}
+
+[data-theme="light"] {
+  --bg-primary: #faf9f5;
+  --bg-secondary: #f4f3ee;
+  --bg-tertiary: #ffffff;
+  --bg-hover: #ebe9e1;
+
+  --text-primary: #141413;
+  --text-secondary: #3d3d3a;
+  --text-muted: #7b7a73;
+
+  --accent: #c15f3c;
+  --accent-dim: #a9502f;
+  --accent-soft: rgba(193, 95, 60, 0.12);
+  --accent-fg: #ffffff;
+  --accent-text: #ffffff;
+
+  --border: rgba(31, 30, 29, 0.13);
+  --border-subtle: rgba(31, 30, 29, 0.07);
+  --border-strong: rgba(31, 30, 29, 0.22);
+
+  --status-waiting: #a8864a;
+  --status-input: #c7791f;
+  --status-completed: #5f7d3f;
+  --bookmark: #b8862b;
+  --color-warning: #a8741e;
+  --color-critical: #b8432f;
+
+  --tab-active: #faf9f5;
+  --tab-inactive: #f4f3ee;
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+/* --- Serif display type ----------------------------------------------------- */
+
+.empty-state-title {
+  font-family: var(--font-serif);
+  font-size: 30px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+.empty-state-title::before {
+  content: '✻';
+  margin-right: 12px;
+  color: var(--accent);
+}
+
+.sidebar-view-title,
+.team-title,
+#modal-title,
+.modal-title {
+  font-family: var(--font-serif);
+  letter-spacing: 0;
+}
+
+.sidebar-view-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.team-title {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.usage-side-value {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.usage-side-value {
+  font-size: 19px;
+}
+
+.project-avatar {
+  font-family: var(--font-serif);
+}
+
+/* --- Flat, warm surfaces instead of gradients and glows --------------------- */
+
+.project-avatar,
+#sidebar.collapsed .project-avatar {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.project-row.active {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+.project-status.working,
+.project-status.input {
+  box-shadow: none;
+}
+
+.session-status-bar {
+  background: var(--bg-secondary);
+}
+
+.ssl-pill,
+.sc-pill {
+  background: var(--border-subtle);
+}
+
+/* Segmented controls: the selected chip is a raised neutral with a clay icon —
+   clay fills stay reserved for primary actions, as in Claude. */
+.project-action-btn.active,
+.project-action-btn.active:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18), inset 0 0 0 1px var(--border);
+}
+
+.project-action-btn.active .action-icon {
+  color: var(--accent);
+}
+
+[data-theme="light"] .project-action-btn.active {
+  box-shadow: 0 1px 2px rgba(31, 30, 29, 0.08), inset 0 0 0 1px var(--border);
+}
+
+.btn-primary {
+  font-weight: 600;
+}
+
+.usage-side-day span {
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.usage-side-day.today span {
+  background: var(--accent);
+}

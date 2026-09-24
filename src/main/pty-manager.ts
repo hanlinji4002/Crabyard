@@ -1,0 +1,547 @@
+import * as pty from 'node-pty';
+import { execSync, execFile } from 'child_process';
+import * as os from 'os';
+import * as path from 'path';
+import type { ProviderId } from '../shared/types';
+import { parseEnvVars } from '../shared/env-vars';
+import { getProvider } from './providers/registry';
+import { registerSession } from './hook-status';
+import { installHooksOnly, installStatusLine } from './claude-cli';
+import { getKeychainIsolationStatus } from './claude-keychain';
+import { isMac, isWin, pathSep, utf8LocaleEnv } from './platform';
+import { nvmDefaultNodeBinDir } from './providers/nvm';
+
+interface PtyInstance {
+  process: pty.IPty;
+  sessionId: string;
+}
+
+const ptys = new Map<string, PtyInstance>();
+const silencedExits = new Set<string>();
+
+/**
+ * Get the full PATH by sourcing the user's login shell.
+ * When Electron is launched from macOS Finder/Dock, process.env.PATH
+ * is minimal (/usr/bin:/bin:/usr/sbin:/sbin) and misses nvm, homebrew, etc.
+ * On Windows, packaged Electron apps inherit PATH from explorer.exe which
+ * may be stale — we read the registry for the current PATH.
+ * We resolve this once by running a login shell / reading the registry.
+ */
+let cachedFullPath: string | null = null;
+
+const PATH_MARKER_BEGIN = '__VY_PATH_BEGIN__';
+const PATH_MARKER_END = '__VY_PATH_END__';
+
+/** Proxy variables, each read by tools in either spelling (see withProxyEnv). */
+const PROXY_VARS = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY'];
+const PROXY_KEYS = new Set(PROXY_VARS.flatMap((name) => [name, name.toLowerCase()]));
+const PROXY_MARKER_BEGIN = '__VY_PROXY_BEGIN__';
+const PROXY_MARKER_END = '__VY_PROXY_END__';
+/** Proxy variables the login shell exports, captured by the same probe that resolves PATH. */
+let cachedShellProxyEnv: Record<string, string> = {};
+
+export function getRegistryPath(): string {
+  if (!isWin) return '';
+
+  const parse = (output: string): string => {
+    const match = output.match(/REG_(?:EXPAND_)?SZ\s+(.+)/);
+    if (!match) return '';
+    let value = match[1].trim();
+    value = value.replace(/%([^%]+)%/g, (_m, varName) => process.env[varName] || `%${varName}%`);
+    return value;
+  };
+
+  let systemPath = '';
+  try {
+    systemPath = parse(execSync(
+      'reg query "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment" /v Path',
+      { encoding: 'utf-8', timeout: 3000, windowsHide: true },
+    ));
+  } catch {}
+
+  let userPath = '';
+  try {
+    userPath = parse(execSync(
+      'reg query "HKCU\\Environment" /v Path',
+      { encoding: 'utf-8', timeout: 3000, windowsHide: true },
+    ));
+  } catch {}
+
+  return [systemPath, userPath].filter(Boolean).join(pathSep);
+}
+
+/** Reset cached PATH (used after install-then-retry flows and in tests). */
+export function resetPathCache(): void {
+  cachedFullPath = null;
+  cachedShellProxyEnv = {};
+}
+
+export function getFullPath(): string {
+  if (cachedFullPath) return cachedFullPath;
+
+  const currentPath = process.env.PATH || '';
+
+  if (isWin) {
+    const home = os.homedir();
+    const extraDirs = [
+      path.join(home, 'AppData', 'Roaming', 'npm'),
+      path.join(home, '.local', 'bin'),
+    ];
+
+    // Read the up-to-date PATH from the Windows registry
+    const registryPath = getRegistryPath();
+
+    const pathSet = new Set([
+      ...currentPath.split(pathSep),
+      ...registryPath.split(pathSep),
+    ]);
+    for (const dir of extraDirs) {
+      pathSet.add(dir);
+    }
+    cachedFullPath = Array.from(pathSet).join(pathSep);
+    return cachedFullPath;
+  }
+
+  const shell = process.env.SHELL || '/bin/zsh';
+
+  // -i is required: nvm exports PATH from ~/.zshrc, only sourced for interactive shells.
+  // The same probe lists the proxy variables the shell exports (see withProxyEnv).
+  try {
+    const shellOutput = execSync(
+      `${shell} -ilc 'echo "${PATH_MARKER_BEGIN}${'${PATH}'}${PATH_MARKER_END}"; ` +
+        `echo ${PROXY_MARKER_BEGIN}; env | grep -iE "^(https?|all|no)_proxy="; echo ${PROXY_MARKER_END}'`,
+      {
+        encoding: 'utf-8',
+        timeout: 8000,
+        env: { ...process.env, HOME: os.homedir() },
+        stdio: ['ignore', 'pipe', 'ignore'],
+      },
+    );
+    cachedShellProxyEnv = parseShellProxyEnv(shellOutput);
+    const match = shellOutput.match(
+      new RegExp(`${PATH_MARKER_BEGIN}([\\s\\S]*?)${PATH_MARKER_END}`),
+    );
+    if (match && match[1]) {
+      cachedFullPath = match[1].trim();
+      return cachedFullPath;
+    }
+  } catch (err) { console.warn('Failed to resolve PATH from login shell:', err); }
+
+  const home = os.homedir();
+  const extraDirs = [
+    '/usr/local/bin',
+    '/opt/homebrew/bin',
+    path.join(home, '.local', 'bin'),
+    path.join(home, '.npm-global', 'bin'),
+    '/usr/local/sbin',
+    '/opt/homebrew/sbin',
+  ];
+  const nvmBin = nvmDefaultNodeBinDir();
+  if (nvmBin) extraDirs.push(nvmBin);
+
+  const pathSet = new Set(currentPath.split(pathSep));
+  for (const dir of extraDirs) {
+    pathSet.add(dir);
+  }
+  cachedFullPath = Array.from(pathSet).join(pathSep);
+  return cachedFullPath;
+}
+
+/**
+ * Fill in a UTF-8 locale when the environment names no charset, so spawned CLIs
+ * and shells don't land in the C locale. A Finder/Dock-launched macOS app
+ * inherits no LANG, which mangles multi-byte output and drops macOS text APIs
+ * back to the legacy system encoding (#157, #160).
+ *
+ * Bare `C`/`POSIX` does not count as a deliberate choice — it is the very locale
+ * that produces the mojibake, and a .desktop entry or systemd unit exporting
+ * `LANG=C` would otherwise pin it. Resolution follows POSIX precedence, so an
+ * `LC_ALL=C` really does mean the session is in the C locale.
+ */
+export function withUtf8Locale<T extends Record<string, string | undefined>>(env: T): T {
+  const locale = env.LC_ALL || env.LC_CTYPE || env.LANG;
+  if (isWin || (locale && !/^(C|POSIX)$/i.test(locale))) return env;
+  return { ...env, ...utf8LocaleEnv };
+}
+
+/** The `NAME=value` proxy lines the login-shell probe printed between its proxy markers. */
+function parseShellProxyEnv(output: string): Record<string, string> {
+  const block = output.match(new RegExp(`${PROXY_MARKER_BEGIN}([\\s\\S]*?)${PROXY_MARKER_END}`));
+  const env: Record<string, string> = {};
+  for (const line of block ? block[1].split('\n') : []) {
+    const eq = line.indexOf('=');
+    const key = line.slice(0, eq);
+    if (eq > 0 && PROXY_KEYS.has(key)) env[key] = line.slice(eq + 1).trim();
+  }
+  return env;
+}
+
+/**
+ * Proxy variables for the HTTP/HTTPS proxy in macOS network settings, from
+ * `scutil --proxy` output — where proxy apps (Clash, Surge, ...) register
+ * themselves. Chromium follows that setting, but CLIs only read *_PROXY
+ * variables. Nothing is taken from the SOCKS setting: Claude Code does not
+ * speak SOCKS, and a socks5:// ALL_PROXY breaks tools without SOCKS support.
+ */
+export function parseSystemProxy(scutilOutput: string): Record<string, string> {
+  const field = (key: string): string | undefined =>
+    scutilOutput.match(new RegExp(`^\\s*${key} : (\\S+)\\s*$`, 'm'))?.[1];
+  const proxyUrl = (kind: 'HTTP' | 'HTTPS'): string | undefined => {
+    const host = field(`${kind}Proxy`);
+    if (field(`${kind}Enable`) !== '1' || !host) return undefined;
+    const port = field(`${kind}Port`);
+    return `http://${host.includes(':') ? `[${host}]` : host}${port ? `:${port}` : ''}`;
+  };
+  const env: Record<string, string> = {};
+  const http = proxyUrl('HTTP');
+  const https = proxyUrl('HTTPS');
+  if (http) env.HTTP_PROXY = http;
+  if (https) env.HTTPS_PROXY = https;
+  // Keep loopback (local MCP servers, IDE bridges) and mDNS hosts off the proxy.
+  if (http || https) env.NO_PROXY = 'localhost,127.0.0.1,::1,.local';
+  return env;
+}
+
+function getSystemProxyEnv(): Record<string, string> {
+  if (!isMac) return {};
+  try {
+    return parseSystemProxy(execSync('/usr/sbin/scutil --proxy', {
+      encoding: 'utf-8',
+      timeout: 3000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }));
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Fill in the proxy variables a Finder/Dock-launched app never inherits:
+ * launchd hands GUI apps a bare environment, so a spawned CLI would try to reach
+ * its API directly — which times out on networks that only work through a local
+ * proxy. A variable already set in `env` (either spelling, even empty) always
+ * wins; a missing one comes from the login shell's exports (captured by the
+ * getFullPath probe), else from the macOS system proxy, read per call so a
+ * proxy app toggled while Vibeyard runs applies to the next session.
+ */
+export function withProxyEnv<T extends Record<string, string | undefined>>(env: T): T {
+  const isSet = (e: Record<string, string | undefined>, name: string): boolean =>
+    e[name] !== undefined || e[name.toLowerCase()] !== undefined;
+  if (isWin || PROXY_VARS.every((name) => isSet(env, name))) return env;
+
+  getFullPath(); // runs (or reuses) the login-shell probe that fills cachedShellProxyEnv
+  const out: Record<string, string | undefined> = { ...env };
+  for (const source of [cachedShellProxyEnv, getSystemProxyEnv()]) {
+    for (const name of PROXY_VARS) {
+      if (isSet(out, name)) continue;
+      for (const key of [name, name.toLowerCase()]) {
+        if (source[key] !== undefined) out[key] = source[key];
+      }
+    }
+  }
+  return out as T;
+}
+
+/**
+ * On Windows, .cmd/.bat and .ps1 files cannot be spawned directly by node-pty
+ * (CreateProcess returns error 193). Wrap them via cmd.exe or powershell.exe.
+ */
+export function resolveWindowsShell(
+  shell: string,
+  args: string[]
+): { shell: string; args: string[] } {
+  if (!isWin) return { shell, args };
+  const ext = path.extname(shell).toLowerCase();
+  // .exe files can be spawned directly by CreateProcess
+  if (ext === '.exe') return { shell, args };
+  // .ps1 scripts need PowerShell
+  if (ext === '.ps1') {
+    return {
+      shell: 'powershell.exe',
+      args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', shell, ...args],
+    };
+  }
+  // Everything else (.cmd, .bat, bare names, extensionless paths):
+  // wrap with cmd.exe so CreateProcess doesn't choke on non-PE binaries.
+  return { shell: 'cmd.exe', args: ['/c', shell, ...args] };
+}
+
+export async function spawnPty(
+  sessionId: string,
+  cwd: string,
+  cliSessionId: string | null,
+  isResume: boolean,
+  extraArgs: string,
+  providerId: ProviderId,
+  initialPrompt: string | undefined,
+  systemPrompt: string | undefined,
+  envVars: string,
+  onData: (data: string) => void,
+  onExit: (exitCode: number, signal?: number) => void,
+  configDir?: string
+): Promise<void> {
+  if (ptys.has(sessionId)) {
+    // Silence the old PTY's exit event so it doesn't remove the new session
+    silencedExits.add(sessionId);
+    killPty(sessionId);
+  }
+
+  registerSession(sessionId);
+
+  const provider = getProvider(providerId);
+
+  // Copilot CLI loads hooks from <cwd>/.github/hooks/*.json, so we must
+  // install the hook file before spawning the binary. Other providers use
+  // global config and are already handled at app boot.
+  if (providerId === 'copilot') {
+    try {
+      await provider.installHooks(null, cwd);
+    } catch (err) {
+      console.warn('Failed to install Copilot hooks for project:', cwd, err);
+    }
+  }
+
+  // Profile support: a Claude session bound to a profile uses an isolated
+  // config dir, so Vibeyard's hooks + statusLine (boot-installed into ~/.claude)
+  // must also be installed there or cost/activity tracking silently breaks.
+  // Fresh profile dirs have no foreign statusLine, so install directly (the
+  // guarded/consent flow stays bound to the shared ~/.claude). Both calls are
+  // idempotent, mirroring the per-spawn Copilot install above.
+  // Guardrail: on macOS, older Claude Code builds reuse a single keychain entry
+  // ("Claude Code-credentials") for every config dir, so logging into one
+  // profile silently overwrites every other profile's token — the accounts
+  // bleed into each other (anthropics/claude-code#20553). Don't spawn a profile
+  // session when isolation is known-broken; surface why in the pane and exit
+  // rather than running under a config dir whose login isn't actually separate.
+  // ('unknown' — a newer build we can't yet confirm — is allowed, never
+  // falsely blocked.) The reason is written via onData (not thrown) because the
+  // renderer fires pty.create without awaiting, so a throw would be a swallowed
+  // rejection leaving a blank pane.
+  if (providerId === 'claude' && configDir && getKeychainIsolationStatus().status === 'unsupported') {
+    onData(
+      '\r\n\x1b[31mClaude profile login isolation is unavailable on this version of Claude Code:\r\n' +
+        'all profiles would share one macOS keychain login, mixing the accounts.\r\n' +
+        'Update Claude Code, then start the profile session again.\x1b[0m\r\n',
+    );
+    onExit(1);
+    return;
+  }
+
+  if (providerId === 'claude' && configDir) {
+    try {
+      installHooksOnly(configDir);
+      installStatusLine(configDir);
+    } catch (err) {
+      console.warn('Failed to install hooks into profile config dir:', configDir, err);
+    }
+  }
+
+  const env = provider.buildEnv(sessionId, withProxyEnv(withUtf8Locale({ ...process.env })) as Record<string, string>, { configDir });
+  // User-provided env vars are merged last so they can override anything,
+  // including provider-set vars like PATH (see plan: "user vars win").
+  Object.assign(env, parseEnvVars(envVars));
+  const args = provider.buildArgs({ cliSessionId, isResume, extraArgs, initialPrompt, systemPrompt });
+  const resolvedShell = provider.resolveBinaryPath();
+  const { shell, args: spawnArgs } = resolveWindowsShell(resolvedShell, args);
+
+  const ptyProcess = pty.spawn(shell, spawnArgs, {
+    name: 'xterm-256color',
+    cols: 120,
+    rows: 30,
+    cwd,
+    env,
+  });
+
+  ptyProcess.onData((data) => onData(data));
+  ptyProcess.onExit(({ exitCode, signal }) => {
+    // Only remove from map if this PTY is still the active one for this session
+    const current = ptys.get(sessionId);
+    if (current?.process === ptyProcess) {
+      ptys.delete(sessionId);
+    }
+    onExit(exitCode, signal);
+  });
+
+  ptys.set(sessionId, { process: ptyProcess, sessionId });
+}
+
+// node-pty on Windows throws synchronously from write/resize/kill when the
+// underlying child process has already exited (see microsoft/node-pty#887).
+// A single dead PTY must not be allowed to crash the main Electron process
+// — it would take down every other active session with it. Guard each
+// operation, log a warning, and drop the dead handle only when the error
+// indicates the PTY is actually dead.
+
+/**
+ * True when a node-pty exception means the underlying process has already
+ * exited (as opposed to a transient or unknown failure). node-pty emits
+ * messages like "Cannot write to a pty that has already exited" / "Cannot
+ * resize a pty that has already exited" / "Cannot kill a pty that has
+ * already exited" — we only prune the map in that case, so a transient
+ * error does not silently leave the session unresponsive.
+ */
+function isPtyExitedError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /already exited/i.test(msg);
+}
+
+/**
+ * Escape sessionId for inclusion in a log message. sessionId arrives from
+ * the renderer over IPC, so it is semi-trusted — JSON.stringify neutralises
+ * newlines, ANSI escape sequences, and any other control characters that
+ * could confuse log output.
+ */
+function formatSessionIdForLog(sessionId: string): string {
+  return JSON.stringify(sessionId);
+}
+
+export function writePty(sessionId: string, data: string): void {
+  const instance = ptys.get(sessionId);
+  if (!instance) return;
+  try {
+    instance.process.write(data);
+  } catch (err) {
+    const message = (err as Error).message;
+    console.warn(`[pty-manager] writePty(${formatSessionIdForLog(sessionId)}) failed: ${message}`);
+    if (isPtyExitedError(err)) {
+      ptys.delete(sessionId);
+    }
+  }
+}
+
+export function resizePty(sessionId: string, cols: number, rows: number): void {
+  const instance = ptys.get(sessionId);
+  if (!instance) return;
+  try {
+    instance.process.resize(cols, rows);
+  } catch (err) {
+    const message = (err as Error).message;
+    console.warn(`[pty-manager] resizePty(${formatSessionIdForLog(sessionId)}) failed: ${message}`);
+    if (isPtyExitedError(err)) {
+      ptys.delete(sessionId);
+    }
+  }
+}
+
+export function killPty(sessionId: string): void {
+  const instance = ptys.get(sessionId);
+  if (!instance) return;
+  try {
+    instance.process.kill();
+  } catch (err) {
+    console.warn(`[pty-manager] killPty(${formatSessionIdForLog(sessionId)}) failed: ${(err as Error).message}`);
+  } finally {
+    // kill is an intentional teardown — always drop the handle, even on throw.
+    ptys.delete(sessionId);
+  }
+}
+
+export function spawnShellPty(
+  sessionId: string,
+  cwd: string,
+  onData: (data: string) => void,
+  onExit: (exitCode: number, signal?: number) => void
+): void {
+  if (ptys.has(sessionId)) {
+    killPty(sessionId);
+  }
+
+  const shell = isWin
+    ? (process.env.COMSPEC || 'cmd.exe')
+    : (process.env.SHELL || '/bin/zsh');
+  const shellEnv = withUtf8Locale({ ...process.env, PATH: getFullPath() });
+  const ptyProcess = pty.spawn(shell, [], {
+    name: 'xterm-256color',
+    cols: 120,
+    rows: 15,
+    cwd,
+    env: shellEnv,
+  });
+
+  ptyProcess.onData((data) => onData(data));
+  ptyProcess.onExit(({ exitCode, signal }) => {
+    ptys.delete(sessionId);
+    onExit(exitCode, signal);
+  });
+
+  ptys.set(sessionId, { process: ptyProcess, sessionId });
+}
+
+export function isSilencedExit(sessionId: string): boolean {
+  return silencedExits.delete(sessionId);
+}
+
+export function killAllPtys(): void {
+  for (const [id] of ptys) {
+    killPty(id);
+  }
+}
+
+/**
+ * Get the current working directory of a PTY's deepest child process.
+ * Uses pgrep/lsof on Unix. Not supported on Windows (returns null).
+ */
+export function getPtyCwd(sessionId: string): Promise<string | null> {
+  const instance = ptys.get(sessionId);
+  if (!instance) return Promise.resolve(null);
+
+  const pid = instance.process.pid;
+
+  if (isWin) {
+    return getPtyCwdWindows(pid);
+  }
+
+  return new Promise((resolve) => {
+    // Find deepest child process recursively
+    findDeepestChild(pid, (deepestPid) => {
+      // Read cwd of the deepest process via lsof
+      execFile(
+        'lsof',
+        ['-a', '-d', 'cwd', '-Fn', '-p', String(deepestPid)],
+        { timeout: 3000 },
+        (err, stdout) => {
+          if (err) {
+            resolve(null);
+            return;
+          }
+          // Parse lsof output: lines starting with 'n' contain the path
+          for (const line of stdout.split('\n')) {
+            if (line.startsWith('n') && line.length > 1) {
+              resolve(line.slice(1));
+              return;
+            }
+          }
+          resolve(null);
+        }
+      );
+    });
+  });
+}
+
+function getPtyCwdWindows(_pid: number): Promise<string | null> {
+  // Windows does not expose process cwd reliably via standard APIs.
+  // This is a best-effort no-op — cwd tracking is not supported on Windows.
+  return Promise.resolve(null);
+}
+
+function findDeepestChild(pid: number, callback: (deepestPid: number) => void): void {
+  execFile(
+    'pgrep',
+    ['-P', String(pid)],
+    { timeout: 3000 },
+    (err, stdout) => {
+      if (err || !stdout.trim()) {
+        // No children — this is the deepest
+        callback(pid);
+        return;
+      }
+      const children = stdout.trim().split('\n').map(s => parseInt(s, 10)).filter(n => !isNaN(n));
+      if (children.length === 0) {
+        callback(pid);
+        return;
+      }
+      // Recurse into the last child (most recent)
+      findDeepestChild(children[children.length - 1], callback);
+    }
+  );
+}

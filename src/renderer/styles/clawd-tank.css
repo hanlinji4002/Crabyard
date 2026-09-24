@@ -1,0 +1,268 @@
+/* The title-bar strip (components/titlebar.ts) and the Clawd tub
+   (components/clawd-tank.ts). The sprites are clawd-tank's SVGs: a
+   -15 -25 45 45 viewBox with Clawd's body at x 0–15, y 6–16. Each is drawn at
+   --s px per unit, centred on Clawd (x 7.5, 22.5 units from its left edge)
+   with its feet (y 16, 4 units above its bottom edge) on the tub floor, so the
+   thought bubbles, hats and Zzz above Clawd rise out of the tub. */
+
+body.mac-titlebar,
+body.clawd-top {
+  --titlebar-h: 40px;
+}
+
+#titlebar {
+  display: none;
+  height: var(--titlebar-h, 0px);
+  background: var(--bg-secondary);
+  -webkit-app-region: drag;
+  user-select: none;
+  overflow: hidden;
+}
+
+body.mac-titlebar #titlebar,
+body.clawd-top #titlebar {
+  display: flex;
+}
+
+#titlebar-side {
+  flex-shrink: 0;
+}
+
+#titlebar-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  padding-bottom: 4px;
+}
+
+#clawd-tub-slot {
+  display: flex;
+  align-items: flex-end;
+}
+
+/* In the title bar the pane is just the tub and, on hover, its two buttons. */
+#usage-clawd-pane.clawd-top {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  overflow: visible;
+}
+
+#usage-clawd-pane[hidden] {
+  display: none;
+}
+
+#usage-panel.multi #usage-clawd-pane {
+  flex-shrink: 0;
+}
+
+#usage-clawd-pane:not(.clawd-top) {
+  container-type: inline-size;
+}
+
+.clawd-tub {
+  --s: 2.4;
+  --floor: 20px;
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  height: 100px;
+  margin-top: 2px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--bg-primary);
+  box-shadow: inset 0 0 0 1px var(--border);
+  overflow: hidden;
+}
+
+/* Four crabs need 26 units each plus the tub's padding; a narrower column shrinks them. */
+@container (max-width: 261px) {
+  .clawd-tub {
+    --s: 2;
+  }
+}
+
+@container (max-width: 219px) {
+  .clawd-tub {
+    --s: 1.8;
+  }
+}
+
+#usage-clawd-pane.clawd-top .clawd-tub {
+  --s: 1.5;
+  --floor: 3px;
+  height: 28px;
+  margin: 0;
+  border-radius: 8px;
+  overflow: visible;
+  -webkit-app-region: no-drag;
+}
+
+.clawd-crab {
+  position: relative;
+  flex-shrink: 0;
+  width: calc(var(--s) * 26px);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.clawd-crab:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+  border-radius: 6px;
+}
+
+.clawd-stage {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.clawd-sprite {
+  position: absolute;
+  width: calc(var(--s) * 45px);
+  height: calc(var(--s) * 45px);
+  left: calc(50% - var(--s) * 22.5px);
+  bottom: calc(var(--floor) - var(--s) * 4px);
+  max-width: none;
+}
+
+.clawd-crab:hover .clawd-sprite {
+  filter: brightness(1.12);
+}
+
+/* The focused conversation's crab stands on an accent mark. */
+.clawd-crab.is-active::after {
+  content: '';
+  position: absolute;
+  left: calc(50% - 8px);
+  width: 16px;
+  bottom: calc(var(--floor) - 3px);
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+
+#usage-clawd-pane.clawd-top .clawd-crab.is-active::after {
+  bottom: 0;
+}
+
+.clawd-crab.arriving .clawd-stage {
+  animation: clawd-walk-in 1.6s ease-out;
+}
+
+@keyframes clawd-walk-in {
+  from {
+    transform: translateX(-24px);
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  to {
+    transform: none;
+  }
+}
+
+.clawd-crab.leaving {
+  pointer-events: none;
+  animation: clawd-leave 1.5s ease-in forwards;
+}
+
+@keyframes clawd-leave {
+  70% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.clawd-name {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  bottom: 3px;
+  overflow: hidden;
+  font-size: 10.5px;
+  line-height: 14px;
+  color: var(--text-muted);
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clawd-crab.is-active .clawd-name {
+  color: var(--text-primary);
+}
+
+#usage-clawd-pane.clawd-top .clawd-name {
+  display: none;
+}
+
+.clawd-more {
+  align-self: center;
+  margin-left: 2px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+}
+
+#usage-clawd-pane:not(.clawd-top) .clawd-more {
+  align-self: flex-end;
+  margin-bottom: 26px;
+}
+
+.clawd-head-inline {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  -webkit-app-region: no-drag;
+}
+
+#usage-clawd-pane.clawd-top:hover .clawd-head-inline,
+.clawd-head-inline:focus-within {
+  opacity: 1;
+}
+
+.clawd-head-inline .icon-btn {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm, 6px);
+  color: var(--text-muted);
+  background: none;
+}
+
+.clawd-head-inline .icon-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.clawd-head .clawd-move {
+  color: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clawd-crab.arriving .clawd-stage,
+  .clawd-crab.leaving {
+    animation: none;
+  }
+}

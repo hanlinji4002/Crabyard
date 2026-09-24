@@ -1,0 +1,604 @@
+/* Sidebar views: Team / 对话 (conversation tree) / Usage */
+
+#sidebar [hidden] {
+  display: none !important;
+}
+
+/* The collapsed rail keeps only the active project's card. */
+#sidebar.collapsed #conv-toolbar,
+#sidebar.collapsed .conv-list,
+#sidebar.collapsed .conv-count,
+#sidebar.collapsed .conv-folder-add,
+#sidebar.collapsed .conv-chevron,
+#sidebar.collapsed .conv-status {
+  display: none !important;
+}
+
+/* --- 对话: search toolbar ------------------------------------------------ */
+
+#conv-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 12px 6px;
+  background: var(--bg-secondary);
+}
+
+.conv-search-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.conv-search-icon {
+  position: absolute;
+  left: 9px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.conv-search {
+  width: 100%;
+  height: 28px;
+  padding: 0 24px 0 28px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  outline: none;
+}
+
+.conv-search:focus {
+  border-color: var(--accent);
+}
+
+.conv-search::placeholder {
+  color: var(--text-muted);
+}
+
+.conv-search-clear {
+  position: absolute;
+  right: 4px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.conv-search-clear:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.conv-refresh,
+.usage-side-refresh {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.conv-refresh:hover,
+.usage-side-refresh:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.conv-refresh.spinning svg,
+.usage-side-refresh.spinning svg {
+  animation: conv-spin 0.9s linear infinite;
+}
+
+@keyframes conv-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* --- 对话: folder cards --------------------------------------------------- */
+
+/* The active card's header toggles its conversation list, so it stays clickable. */
+.project-item.active.conv-folder-header {
+  cursor: pointer;
+}
+
+/* The card spells out the folder's name and location in full, with no
+   initial tile: the name shares the first line with the count, + and chevron,
+   and the location gets the card's whole width below. The tile only stays for
+   the collapsed rail. */
+#sidebar:not(.collapsed) .conv-folder-header .project-avatar {
+  display: none;
+}
+
+#sidebar:not(.collapsed) .conv-folder-header.active {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+}
+
+#sidebar:not(.collapsed) .conv-folder-header.active .project-main {
+  display: contents;
+}
+
+#sidebar:not(.collapsed) .conv-folder-header.active .project-name {
+  grid-column: 1;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+#sidebar:not(.collapsed) .conv-folder-header.active .project-path {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  margin-top: -3px;
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.conv-folder-icon {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--text-muted);
+}
+
+.conv-folder.missing .project-name {
+  color: var(--text-muted);
+}
+
+.conv-count {
+  flex-shrink: 0;
+  min-width: 20px;
+  padding: 2px 7px;
+  border-radius: 20px;
+  background: var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.conv-folder-add {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.conv-folder-header:hover .conv-folder-add,
+.conv-folder-header.active .conv-folder-add {
+  display: flex;
+}
+
+.conv-folder-add:hover {
+  color: var(--accent-fg);
+  background: var(--accent);
+}
+
+.conv-folder-add:disabled {
+  display: none !important;
+}
+
+.conv-chevron {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  margin-right: 2px;
+  border-right: 1.5px solid var(--text-muted);
+  border-bottom: 1.5px solid var(--text-muted);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.conv-chevron.open {
+  transform: rotate(45deg);
+}
+
+/* --- 对话: conversation rows ---------------------------------------------- */
+
+.conv-list {
+  padding: 0 0 6px 12px;
+}
+
+.project-row.active .conv-list {
+  padding: 0 8px 10px;
+}
+
+.conv-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.conv-item:hover {
+  background: var(--bg-hover);
+}
+
+.conv-item.unavailable {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.conv-item.unavailable:hover {
+  background: transparent;
+}
+
+.conv-dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--text-muted);
+}
+
+.conv-item.open .conv-dot {
+  box-shadow: none;
+}
+
+.conv-dot.idle {
+  background: var(--text-secondary);
+}
+
+.conv-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.conv-title {
+  font-size: 12.5px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conv-item.open .conv-title {
+  font-weight: 600;
+}
+
+.conv-meta {
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Trash button, revealed on hover (open conversations have none). */
+.conv-delete {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  margin: 1px -2px 0 0;
+  padding: 0;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.conv-item:hover .conv-delete {
+  display: flex;
+}
+
+.conv-delete:hover {
+  color: var(--color-critical);
+  background: var(--bg-hover);
+}
+
+.conv-more {
+  display: block;
+  width: 100%;
+  margin-top: 2px;
+  padding: 5px 8px 5px 23px;
+  font: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.conv-more:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.conv-empty {
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.conv-status {
+  padding: 14px 16px;
+}
+
+/* --- Usage panel chrome ------------------------------------------ */
+
+.sidebar-view-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 2px 10px;
+}
+
+.sidebar-view-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.sidebar-view-count {
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 20px;
+  background: var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.sidebar-view-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sidebar-view-actions .btn-sm {
+  padding: 4px 8px;
+  font-size: 11.5px;
+}
+
+.sidebar-view-link {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.sidebar-view-link:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.sidebar-view-link:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* --- Usage --------------------------------------------------------------- */
+
+.usage-side-ranges {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  margin-bottom: 10px;
+  background: var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.usage-side-range {
+  flex: 1;
+  height: 24px;
+  padding: 0;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.usage-side-range:hover {
+  color: var(--text-primary);
+}
+
+.usage-side-range.active {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.usage-side-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.usage-side-card {
+  min-width: 0;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+}
+
+.usage-side-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-side-label {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.usage-side-mix {
+  margin-top: 6px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.usage-side-section {
+  margin: 14px 0 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.usage-side-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 64px;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+}
+
+.usage-side-day {
+  flex: 1;
+  min-width: 2px;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+
+.usage-side-day span {
+  display: block;
+  width: 100%;
+  border-radius: 2px 2px 0 0;
+  background: color-mix(in srgb, var(--accent) 65%, transparent);
+}
+
+.usage-side-day.today span {
+  background: var(--accent);
+}
+
+.usage-side-day.dim span {
+  background: color-mix(in srgb, var(--text-muted) 45%, transparent);
+}
+
+.usage-side-day:hover span {
+  background: var(--accent-dim);
+}
+
+.usage-side-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 3px;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-side-row {
+  padding: 5px 2px;
+}
+
+.usage-side-row-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.usage-side-row-name {
+  min-width: 0;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-side-row-cost {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-side-bar {
+  height: 4px;
+  margin: 4px 0 3px;
+  border-radius: 2px;
+  background: var(--border-subtle);
+  overflow: hidden;
+}
+
+.usage-side-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.usage-side-row-detail {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.usage-side-note {
+  margin-top: 10px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}

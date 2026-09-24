@@ -1,0 +1,197 @@
+import { app, BrowserWindow, dialog, nativeTheme, powerMonitor, shell } from 'electron';
+import * as fs from 'fs';
+import * as path from 'path';
+import { pathToFileURL } from 'url';
+import { registerIpcHandlers, resetHookWatcher } from './ipc-handlers';
+import { killAllPtys } from './pty-manager';
+import { flushState, loadState } from './store';
+import { createAppMenu } from './menu';
+import { restartAndResync } from './hook-status';
+import { initProviders, getAllProviders } from './providers/registry';
+import { initAutoUpdater } from './auto-updater';
+import { stopGitWatcher } from './git-watcher';
+import { stopAllFileWatchers } from './file-watcher';
+import { checkPythonAvailable } from './prerequisites';
+import { isMac } from './platform';
+import { isCloseConfirmed, setCloseConfirmed } from './close-state';
+import { isHttpUrl } from '../shared/url';
+import { windowBackground } from './window-theme';
+
+// Crabyard used to be called myClaudeTUI: keep its settings folder, so the
+// layout and toggles saved in the window's localStorage survive the rename.
+const legacyUserData = path.join(app.getPath('appData'), 'myClaudeTUI');
+if (fs.existsSync(legacyUserData)) app.setPath('userData', legacyUserData);
+
+let mainWindow: BrowserWindow | null = null;
+
+function requestConfirmClose(): void {
+  const win = BrowserWindow.getAllWindows()[0];
+  if (win && !win.isDestroyed()) {
+    win.webContents.send('app:confirmClose');
+  } else {
+    setCloseConfirmed(true);
+    app.quit();
+  }
+}
+
+function createWindow(): void {
+  // Start in the saved theme so the title bar and first paint match before the
+  // renderer loads (it re-sends the theme via 'app:setNativeTheme').
+  const theme = loadState()?.preferences?.theme === 'light' ? 'light' : 'dark';
+  nativeTheme.themeSource = theme;
+  mainWindow = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    minWidth: 800,
+    minHeight: 500,
+    title: 'Crabyard',
+    icon: path.join(__dirname, '..', '..', '..', 'build', 'icon.png'),
+    backgroundColor: windowBackground(theme),
+    // The renderer draws its own title bar (#titlebar, 40px) so the Clawd tub
+    // can sit in it; the traffic lights stay, centred in that strip.
+    ...(isMac ? { titleBarStyle: 'hidden' as const, trafficLightPosition: { x: 16, y: 14 } } : {}),
+    webPreferences: {
+      preload: path.join(__dirname, '..', '..', 'preload', 'preload', 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: false, // needed for node-pty IPC
+    },
+  });
+
+  const indexPath = path.join(__dirname, '..', '..', 'renderer', 'index.html');
+  mainWindow.loadFile(indexPath);
+
+  // Open external links in default browser instead of inside the app
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (isHttpUrl(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  // The app document is the ONLY navigation target we ever allow. A stray anchor
+  // in rendered content (e.g. a relative `.md` link in the file reader) resolves
+  // against this file:// document and would otherwise navigate the window away
+  // from index.html, destroying every session, PTY and layout binding with it.
+  // Compared on the decoded pathname so percent-encoding differences between
+  // Electron's own loadFile URL and pathToFileURL never cause a false block.
+  const appPathname = decodeURIComponent(pathToFileURL(indexPath).pathname);
+  const isAppUrl = (url: string): boolean => {
+    try {
+      const parsed = new URL(url);
+      return parsed.protocol === 'file:' && decodeURIComponent(parsed.pathname) === appPathname;
+    } catch {
+      return false;
+    }
+  };
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (isAppUrl(url)) return;
+    event.preventDefault();
+    if (isHttpUrl(url)) shell.openExternal(url);
+  });
+
+  mainWindow.on('close', (event) => {
+    if (!isCloseConfirmed()) {
+      event.preventDefault();
+      requestConfirmClose();
+      return;
+    }
+    flushState();
+  });
+
+  mainWindow.on('closed', () => {
+    killAllPtys();
+    resetHookWatcher();
+    stopAllFileWatchers();
+    mainWindow = null;
+  });
+}
+
+app.whenReady().then(async () => {
+  initProviders();
+
+  const providers = getAllProviders();
+  const missing = providers.filter(p => !p.validatePrerequisites());
+  for (const p of missing) {
+    console.warn(`Provider "${p.meta.displayName}" not available`);
+  }
+  if (missing.length === providers.length) {
+    const bullets = providers.map(p => `  • ${p.meta.displayName}`).join('\n');
+    dialog.showErrorBox(
+      'Crabyard — No CLI Provider Found',
+      `Crabyard needs at least one supported CLI provider installed to run.\n\n` +
+        `Install one of the following, then restart Crabyard:\n\n${bullets}`,
+    );
+    app.quit();
+    return;
+  }
+
+  registerIpcHandlers();
+  const state = loadState();
+  createAppMenu(state.preferences?.debugMode ?? false);
+  createWindow();
+
+  // Warn if Python is missing on Windows (hooks depend on it)
+  const pythonWarning = checkPythonAvailable();
+  if (pythonWarning) {
+    console.warn(pythonWarning);
+    dialog.showMessageBox(mainWindow!, {
+      type: 'warning',
+      title: 'Crabyard — Python Not Found',
+      message: pythonWarning,
+    });
+  }
+
+  // Install hooks and status scripts for available providers (after window creation so dialogs can attach)
+  for (const provider of getAllProviders()) {
+    if (provider.validatePrerequisites()) {
+      await provider.installHooks(mainWindow);
+      provider.installStatusScripts();
+    }
+  }
+
+  initAutoUpdater();
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+    } else {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (win && !win.isDestroyed()) {
+        restartAndResync(win);
+      }
+    }
+  });
+
+  powerMonitor.on('resume', () => {
+    const win = BrowserWindow.getAllWindows()[0];
+    if (win && !win.isDestroyed()) {
+      restartAndResync(win);
+    }
+  });
+});
+
+app.on('before-quit', (event) => {
+  if (!isCloseConfirmed()) {
+    event.preventDefault();
+    requestConfirmClose();
+    return;
+  }
+  flushState();
+  const win = BrowserWindow.getAllWindows()[0];
+  if (win && !win.isDestroyed()) {
+    win.webContents.send('app:quitting');
+  }
+  killAllPtys();
+  stopGitWatcher();
+  stopAllFileWatchers();
+  // Cleanup all providers
+  for (const provider of getAllProviders()) {
+    provider.cleanup();
+  }
+});
+
+app.on('window-all-closed', () => {
+  if (!isMac) {
+    app.quit();
+  }
+});

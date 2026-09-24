@@ -1,0 +1,613 @@
+/* Right-hand column (components/usage-panel.ts): Current usage on top, the
+   usage totals below; either can be closed and the other fills the column. */
+
+#usage-panel {
+  flex-shrink: 0;
+  width: 300px;
+  min-width: 240px;
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border);
+  user-select: none;
+}
+
+/* Open panes take their content's height and shrink (scrolling) when the
+   column runs out; the usage totals soak up whatever is left. */
+.usage-pane {
+  flex: 0 1 auto;
+  min-height: 72px;
+  padding: 0 14px 16px;
+  overflow-y: auto;
+}
+
+/* A lone pane fills the column; with company, usage-panel.ts sizes each pane
+   (the last one fills, dragged ones keep their height). */
+#usage-panel:not(.multi) .usage-pane {
+  flex: 1 1 auto;
+}
+
+#usage-panel.multi #usage-live-pane {
+  flex-shrink: 0;
+}
+
+.usage-pane.stacked {
+  border-top: 1px solid var(--border);
+}
+
+/* The drag edge between two panes: a generous invisible grip over the hairline. */
+.usage-split {
+  position: relative;
+  z-index: 3;
+  flex: 0 0 8px;
+  margin: -4px 0;
+  cursor: row-resize;
+}
+
+.usage-split::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 3px;
+  height: 2px;
+  background: transparent;
+  transition: background 0.12s;
+}
+
+.usage-split:hover::after,
+.usage-split.active::after {
+  background: var(--accent);
+}
+
+/* --- Bottom row: the project terminal with 当前用量 docked beside it --------- */
+
+#bottom-row {
+  flex-shrink: 0;
+  display: flex;
+  min-height: 0;
+}
+
+#bottom-row > #project-terminal-panel {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Edge between the terminal and the dock; dragging right narrows the dock. */
+#bottom-dock-split {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 6px;
+  margin: 0 -3px;
+  cursor: col-resize;
+}
+
+#bottom-dock-split::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: transparent;
+  transition: background 0.12s;
+}
+
+#bottom-dock-split:hover::after,
+#bottom-dock-split.active::after {
+  background: var(--accent);
+}
+
+#bottom-dock-split[hidden],
+#project-terminal-panel.hidden ~ #bottom-dock-split {
+  display: none;
+}
+
+#bottom-usage-dock {
+  flex: 0 0 var(--dock-width, 320px);
+  min-width: 0;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+}
+
+/* Without the terminal, the dock has the row to itself. */
+#project-terminal-panel.hidden ~ #bottom-usage-dock {
+  flex: 1 1 auto;
+  border-left: none;
+}
+
+#bottom-usage-dock[hidden] {
+  display: none;
+}
+
+#bottom-usage-dock .usage-pane {
+  min-height: 0;
+  overflow: visible;
+}
+
+#bottom-usage-dock .sidebar-view-header {
+  padding-top: 12px;
+  flex-wrap: nowrap;
+}
+
+#bottom-usage-dock .sidebar-view-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#bottom-usage-dock .sidebar-view-actions {
+  flex-shrink: 0;
+}
+
+/* Narrowed from the terminal side: drop the timestamp, then the title, so the
+   buttons and the remaining rings always fit. */
+#bottom-usage-dock {
+  container-type: inline-size;
+}
+
+@container (max-width: 300px) {
+  #bottom-usage-dock .live-usage-updated {
+    display: none;
+  }
+}
+
+@container (max-width: 170px) {
+  #bottom-usage-dock .sidebar-view-title {
+    display: none;
+  }
+
+  #bottom-usage-dock .sidebar-view-header {
+    justify-content: flex-end;
+  }
+}
+
+#bottom-usage-dock .live-rings {
+  max-width: 440px;
+}
+
+#usage-panel-resize-handle {
+  flex-shrink: 0;
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+}
+
+#usage-panel-resize-handle:hover,
+#usage-panel-resize-handle.active {
+  background: var(--accent);
+}
+
+#usage-panel[hidden],
+#usage-panel-resize-handle[hidden],
+.usage-pane[hidden] {
+  display: none;
+}
+
+/* Each pane's title stays put while its content scrolls. */
+#usage-panel .sidebar-view-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding-top: 14px;
+  background: var(--bg-secondary);
+}
+
+/* Short on room next to other panes: the totals keep only the ranges, the four
+   cards and the mix line (usage-panel.ts measures). */
+#usage-totals-pane.compact .usage-side-section,
+#usage-totals-pane.compact .usage-side-chart,
+#usage-totals-pane.compact .usage-side-axis,
+#usage-totals-pane.compact .usage-side-row,
+#usage-totals-pane.compact .usage-side-note,
+#usage-totals-pane.compact .usage-side-body .conv-empty {
+  display: none;
+}
+
+.usage-panel-close {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 17px;
+  line-height: 1;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.usage-panel-close:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+/* Tab-bar toggles show their state like pressed tools. */
+#btn-toggle-clawd.active,
+#btn-toggle-skills.active,
+#btn-toggle-usage.active,
+#btn-toggle-live-usage.active,
+#btn-toggle-turn-changes.active,
+#btn-toggle-session-changes.active,
+#btn-toggle-swarm.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* --- Current usage: plan-limit rings ---------------------------------------- */
+
+/* Blue up to 60%, then the warning yellow, then red from 85%. */
+:root,
+[data-theme="dark"] {
+  --usage-ok: #4f8fe6;
+}
+
+[data-theme="light"] {
+  --usage-ok: #2f6fc9;
+}
+
+.live-usage-updated {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.live-rings {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.live-ring {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  text-align: center;
+}
+
+.live-ring-dial {
+  position: relative;
+  flex-shrink: 0;
+  width: 68px;
+  height: 68px;
+}
+
+/* Start the arc at twelve o'clock. */
+.live-ring-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.live-ring-track {
+  fill: none;
+  stroke: color-mix(in srgb, var(--text-muted) 20%, transparent);
+  stroke-width: 6;
+}
+
+.live-ring-fill {
+  fill: none;
+  stroke: var(--usage-ok);
+  stroke-width: 6;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.5s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.3s;
+}
+
+.live-ring.warn .live-ring-fill {
+  stroke: var(--color-warning);
+}
+
+.live-ring.crit .live-ring-fill {
+  stroke: var(--color-critical);
+}
+
+.live-ring-value {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-serif);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.live-ring-value span {
+  margin-left: 1px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.live-ring.empty .live-ring-value {
+  color: var(--text-muted);
+}
+
+.live-ring-text {
+  min-width: 0;
+}
+
+.live-ring-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text-primary);
+}
+
+.live-ring-reset {
+  margin-top: 2px;
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
+.live-usage-note {
+  margin-top: 12px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* Alone in the column: one ring per row, larger, text beside it. */
+#usage-live-pane.solo .live-rings {
+  grid-template-columns: 1fr;
+  gap: 16px;
+  margin-top: 4px;
+}
+
+#usage-live-pane.solo .live-ring {
+  flex-direction: row;
+  gap: 16px;
+  text-align: left;
+}
+
+#usage-live-pane.solo .live-ring-dial {
+  width: 92px;
+  height: 92px;
+}
+
+#usage-live-pane.solo .live-ring-value {
+  font-size: 22px;
+}
+
+#usage-live-pane.solo .live-ring-label {
+  font-size: 13px;
+}
+
+#usage-live-pane.solo .live-ring-reset {
+  font-size: 11.5px;
+}
+
+/* --- 本轮修改 / 本对话修改: files the focused conversation changed ----------- */
+
+:root,
+[data-theme="dark"] {
+  --diff-add: #7fbf7a;
+  --diff-del: #e2765f;
+  --diff-add-bg: rgba(127, 191, 122, 0.12);
+  --diff-del-bg: rgba(226, 118, 95, 0.13);
+}
+
+[data-theme="light"] {
+  --diff-add: #3f8a45;
+  --diff-del: #c0493b;
+  --diff-add-bg: rgba(63, 138, 69, 0.1);
+  --diff-del-bg: rgba(192, 73, 59, 0.1);
+}
+
+.chg-sum {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.chg-add {
+  color: var(--diff-add);
+}
+
+.chg-del {
+  color: var(--diff-del);
+}
+
+.chg-count {
+  margin-left: 3px;
+  color: var(--text-muted);
+}
+
+.chg-context {
+  margin: -4px 0 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chg-row {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.chg-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  color: var(--text-primary);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.chg-head:hover {
+  background: var(--bg-hover);
+}
+
+.chg-icon {
+  flex-shrink: 0;
+  display: flex;
+  color: var(--text-muted);
+}
+
+/* Name on the first line (with the new-file tag), directory under it. */
+.chg-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.chg-name-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.chg-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chg-new {
+  flex-shrink: 0;
+  padding: 0 4px;
+  font-size: 9.5px;
+  line-height: 14px;
+  color: var(--diff-add);
+  border: 1px solid color-mix(in srgb, var(--diff-add) 45%, transparent);
+  border-radius: 4px;
+}
+
+.chg-dir {
+  min-width: 0;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chg-stats {
+  flex-shrink: 0;
+  display: flex;
+  gap: 5px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chg-chevron {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  margin: 0 2px 0 3px;
+  border-right: 1.5px solid var(--text-muted);
+  border-bottom: 1.5px solid var(--text-muted);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.chg-row.open .chg-chevron {
+  transform: rotate(45deg);
+}
+
+.chg-diff {
+  max-height: 360px;
+  overflow: auto;
+  border-top: 1px solid var(--border-subtle);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.55;
+  user-select: text;
+}
+
+.chg-hunk-head {
+  padding: 2px 10px;
+  color: var(--text-muted);
+  background: var(--border-subtle);
+}
+
+.chg-line {
+  padding: 0 10px 0 6px;
+  white-space: pre;
+  color: var(--text-secondary);
+}
+
+.chg-line.add {
+  color: var(--text-primary);
+  background: var(--diff-add-bg);
+}
+
+.chg-line.del {
+  color: var(--text-primary);
+  background: var(--diff-del-bg);
+}
+
+.chg-sign {
+  display: inline-block;
+  width: 14px;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.chg-line.add .chg-sign {
+  color: var(--diff-add);
+}
+
+.chg-line.del .chg-sign {
+  color: var(--diff-del);
+}
+
+.chg-truncated {
+  padding: 4px 10px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.chg-empty {
+  padding: 2px 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.chg-note {
+  margin-top: 10px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+

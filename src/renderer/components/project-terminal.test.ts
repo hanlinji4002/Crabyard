@@ -65,11 +65,12 @@ vi.mock('../shortcuts.js', () => ({
 
 class FakeEl {
   style: Record<string, string> = {};
-  classList = { add: vi.fn(), remove: vi.fn(), contains: vi.fn(() => false) };
+  classList = { add: vi.fn(), remove: vi.fn(), toggle: vi.fn(), contains: vi.fn(() => false) };
   children: FakeEl[] = [];
   offsetHeight = 200;
 
   addEventListener(): void {}
+  setAttribute(): void {}
   appendChild(child: FakeEl): FakeEl { this.children.push(child); return child; }
   contains(): boolean { return false; }
   querySelector(): null { return null; }

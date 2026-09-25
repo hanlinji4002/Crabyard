@@ -6,19 +6,24 @@ import {
   EFFORT_LEVELS,
   MODEL_CHOICES,
   PERMISSION_MODES,
+  readEffortExchange,
   readPromptState,
+  readUltracodeTag,
+  transcriptText,
   shortModelName,
   type PermissionMode,
   type PromptState,
   type ScreenLine,
 } from '../claude-tui.js';
 
-// Model / thinking / mode pills on a Claude session's status bar. They drive
-// the running CLI the way a person would: `/model <id>` and `/effort <level>`
-// typed into an empty prompt, Alt+T for the thinking toggle, Shift+Tab to cycle
-// permission modes. Keys are only sent after reading the screen confirms the
-// prompt box is showing and empty — never over a dialog, where Enter could
-// answer a permission request, and never on top of an unsent draft.
+// Model / thinking / mode pills and an Ultracode switch on a Claude session's
+// status bar. They drive the running CLI the way a person would: `/model <id>`
+// and `/effort <level>` typed into an empty prompt, Alt+T for the thinking
+// toggle, Shift+Tab to cycle permission modes, `/effort ultracode` to turn on
+// ultracode and `/effort xhigh` (the app's default effort) to turn it off.
+// Keys are only sent after reading the screen confirms the prompt box is
+// showing and empty — never over a dialog, where Enter could answer a
+// permission request, and never on top of an unsent draft.
 
 const SHIFT_TAB = '\x1b[Z';
 const ALT_T = '\x1bt';
@@ -28,6 +33,9 @@ const DIALOG_TIMEOUT_MS = 1500;
 const CONFIRM_TIMEOUT_MS = 800;
 const HINT_MS = 4000;
 const MODE_REFRESH_MS = 400;
+const REPLY_TIMEOUT_MS = 2500;
+/** Effort the Ultracode switch goes back to when turned off: the app's launch default. */
+const ULTRACODE_OFF_EFFORT = 'xhigh';
 
 export interface SessionStatusFields {
   model?: string;
@@ -46,6 +54,10 @@ interface ControlsState {
   effort?: string;
   thinking?: boolean;
   mode: PermissionMode | null;
+  /** Ultracode as last read from the CLI; off until it says otherwise. */
+  ultracode: boolean;
+  /** The CLI has drawn its "ultracode" tag in this session, so its absence now means off. */
+  tagSeen: boolean;
   busy: boolean;
   hintTimer: ReturnType<typeof setTimeout> | null;
   modeTimer: ReturnType<typeof setTimeout> | null;
@@ -120,13 +132,15 @@ async function runExclusive(state: ControlsState, action: () => Promise<void>): 
   }
 }
 
-async function sendSlashCommand(state: ControlsState, command: string): Promise<void> {
-  if (!readyForInput(state)) return;
+/** Type `command` into the empty prompt and submit it; false when the prompt wasn't ready. */
+async function sendSlashCommand(state: ControlsState, command: string): Promise<boolean> {
+  if (!readyForInput(state)) return false;
   write(state, command);
   // Separate write so the CLI sees Enter as a keypress, not part of a paste.
   await sleep(80);
   write(state, '\r');
   showHint(state, t('sessionControls.sent', { command }));
+  return true;
 }
 
 async function waitForScreen(state: ControlsState, matches: RegExp, timeoutMs: number): Promise<boolean> {
@@ -137,6 +151,46 @@ async function waitForScreen(state: ControlsState, matches: RegExp, timeoutMs: n
     if (term && readScreen(term).some((l) => matches.test(l.text))) return true;
   }
   return false;
+}
+
+/**
+ * Turn ultracode on (`/effort ultracode`) or off (`/effort xhigh`), then read
+ * the CLI's reply under this command's echo: it says when ultracode can't run
+ * here (dynamic workflows off, an effort cap, a model without xhigh, an effort
+ * env override), which the hint passes on. A confirmation dialog is left to
+ * the person, in the terminal.
+ */
+async function setUltracode(state: ControlsState, on: boolean): Promise<void> {
+  const term = state.getTerminal();
+  if (!term) return;
+  // The CLI may redraw the whole screen, so rows don't tell old from new:
+  // a reply counts once the conversation above the prompt has changed.
+  const before = transcriptText(readScreen(term));
+  const arg = on ? 'ultracode' : ULTRACODE_OFF_EFFORT;
+  const command = `/effort ${arg}`;
+  if (!(await sendSlashCommand(state, command))) return;
+  const deadline = Date.now() + REPLY_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await sleep(POLL_MS);
+    const lines = readScreen(term);
+    if (lines.some((l) => /Change effort level\?/.test(l.text))) {
+      term.focus();
+      showHint(state, t('sessionControls.confirmInTerminal'));
+      return;
+    }
+    if (transcriptText(lines) === before) continue;
+    const exchange = readEffortExchange(lines);
+    if (!exchange?.reply || exchange.arg !== arg) continue;
+    const reply = exchange.reply;
+    state.ultracode = reply === 'on';
+    render(state);
+    if (reply === 'on' || reply === 'off') {
+      showHint(state, t(reply === 'on' ? 'sessionControls.ultracodeEnabled' : 'sessionControls.ultracodeDisabled'));
+    } else {
+      showHint(state, t(`sessionControls.ultracodeUnavailable.${reply}`));
+    }
+    return;
+  }
 }
 
 async function setThinking(state: ControlsState, enabled: boolean): Promise<void> {
@@ -252,7 +306,14 @@ function openModelMenu(state: ControlsState, anchor: HTMLElement): void {
     current: currentName === choice.label.toLowerCase(),
     run: () => {
       if (currentName === choice.label.toLowerCase()) return;
-      void runExclusive(state, () => sendSlashCommand(state, `/model ${choice.id}`));
+      void runExclusive(state, async () => {
+        if (!(await sendSlashCommand(state, `/model ${choice.id}`))) return;
+        // The CLI may ask before switching models (e.g. with ultracode on): that's the person's call.
+        if (await waitForScreen(state, /Switch model\?|Confirm switching the model/i, CONFIRM_TIMEOUT_MS)) {
+          state.getTerminal()?.focus();
+          showHint(state, t('sessionControls.confirmInTerminal'));
+        }
+      });
     },
   })));
 }
@@ -263,8 +324,14 @@ function openEffortMenu(state: ControlsState, anchor: HTMLElement): void {
     hint: level,
     current: state.effort === level,
     run: () => {
-      if (state.effort === level) return;
-      void runExclusive(state, () => sendSlashCommand(state, `/effort ${level}`));
+      if (state.effort === level && !state.ultracode) return;
+      void runExclusive(state, async () => {
+        // any effort level other than ultracode turns ultracode off
+        if (await sendSlashCommand(state, `/effort ${level}`) && state.ultracode) {
+          state.ultracode = false;
+          render(state);
+        }
+      });
     },
   }));
   items.push('separator');
@@ -302,6 +369,25 @@ function pill(kind: string, icon: string, text: string, title: string): string {
   return `<button type="button" class="sc-pill sc-${kind}" title="${esc(title)}"><span class="sc-icon" aria-hidden="true">${icon}</span><span class="sc-text">${esc(text)}</span><span class="sc-caret" aria-hidden="true"></span></button>`;
 }
 
+// Claude Code's rainbow for "ultracode"/"ultrathink" (its theme's rainbow_* and
+// rainbow_*_shimmer colours): each letter takes the next colour, and a brighter
+// shimmer sweeps across the word (styles/session-controls.css).
+const RAINBOW = ['rgb(235,95,87)', 'rgb(245,139,87)', 'rgb(250,195,95)', 'rgb(145,200,130)', 'rgb(130,170,220)', 'rgb(155,130,200)', 'rgb(200,130,180)'];
+const RAINBOW_SHIMMER = ['rgb(250,155,147)', 'rgb(255,185,137)', 'rgb(255,225,155)', 'rgb(185,230,180)', 'rgb(180,205,240)', 'rgb(195,180,230)', 'rgb(230,180,210)'];
+
+function rainbowWord(word: string): string {
+  return [...word]
+    .map((ch, i) => `<span class="sc-uc-letter" style="--i:${i};--c:${RAINBOW[i % RAINBOW.length]};--s:${RAINBOW_SHIMMER[i % RAINBOW_SHIMMER.length]}">${esc(ch)}</span>`)
+    .join('');
+}
+
+/** The Ultracode switch: a pill without a menu, its name in Claude Code's shimmering rainbow while on. */
+function ultracodeSwitch(on: boolean): string {
+  const label = t('sessionControls.ultracode');
+  const text = on ? `${rainbowWord(label)}<span class="sc-uc-state">${esc(t('sessionControls.ultracodeOnSuffix'))}</span>` : esc(label);
+  return `<button type="button" class="sc-pill sc-ultracode${on ? ' on' : ''}" role="switch" aria-checked="${on}" aria-label="${esc(on ? t('sessionControls.ultracodeOn') : label)}" title="${esc(t('sessionControls.ultracodeTitle'))}"><span class="sc-icon" aria-hidden="true">✺</span><span class="sc-text">${text}</span></button>`;
+}
+
 function render(state: ControlsState): void {
   const model = shortModelName(state.modelName) || t('sessionControls.model');
   let effort = `${t('sessionControls.effort')} · ${effortLabel(state.effort)}`;
@@ -311,6 +397,7 @@ function render(state: ControlsState): void {
     ${pill('model', '✦', model, t('sessionControls.modelTitle'))}
     ${pill('effort', '◐', effort, t('sessionControls.effortTitle'))}
     ${pill('mode', state.mode === 'plan' || state.mode === 'default' ? '⏸' : '⏵⏵', mode, t('sessionControls.modeTitle'))}
+    ${ultracodeSwitch(state.ultracode)}
   `;
   state.el.dataset.mode = state.mode ?? '';
   const bind = (selector: string, open: (s: ControlsState, a: HTMLElement) => void) => {
@@ -323,6 +410,7 @@ function render(state: ControlsState): void {
   bind('.sc-model', openModelMenu);
   bind('.sc-effort', openEffortMenu);
   bind('.sc-mode', openModeMenu);
+  bind('.sc-ultracode', (s) => { void runExclusive(s, () => setUltracode(s, !s.ultracode)); });
 }
 
 // --- Public API ---------------------------------------------------------------
@@ -336,7 +424,7 @@ export function mountSessionControls(statusBar: HTMLElement, sessionId: string, 
   hintEl.className = 'sc-hint';
   hintEl.hidden = true;
   el.append(pillsEl, hintEl);
-  const state: ControlsState = { sessionId, el, pillsEl, hintEl, getTerminal, mode: null, busy: false, hintTimer: null, modeTimer: null };
+  const state: ControlsState = { sessionId, el, pillsEl, hintEl, getTerminal, mode: null, ultracode: false, tagSeen: false, busy: false, hintTimer: null, modeTimer: null };
   controls.set(sessionId, state);
   statusBar.classList.add('has-controls');
   statusBar.insertBefore(el, statusBar.firstChild);
@@ -359,23 +447,45 @@ export function updateSessionControlsStatus(sessionId: string, fields: SessionSt
     modelName: fields.model ?? state.modelName,
     effort: fields.effort ?? state.effort,
     thinking: fields.thinking ?? state.thinking,
+    // ultracode always runs at xhigh: any other effort, or none (a model without
+    // effort levels), means it's off
+    ultracode: state.ultracode && fields.effort === 'xhigh',
   };
-  if (next.modelName === state.modelName && next.effort === state.effort && next.thinking === state.thinking) return;
+  if (next.modelName === state.modelName && next.effort === state.effort && next.thinking === state.thinking && next.ultracode === state.ultracode) return;
   Object.assign(state, next);
   render(state);
 }
 
-/** Re-read the footer's mode label shortly after terminal output settles. */
+/**
+ * Re-read the footer's mode label, and whether ultracode is on, shortly after
+ * terminal output settles. Ultracode follows the CLI's "ultracode" tag on the
+ * prompt box once the CLI has drawn it this session (its absence then means
+ * off), and otherwise the reply to the newest `/effort` on screen, e.g. one
+ * typed by hand.
+ */
 export function scheduleModeRefresh(sessionId: string): void {
   const state = controls.get(sessionId);
   if (!state || state.modeTimer || state.busy) return;
   state.modeTimer = setTimeout(() => {
     state.modeTimer = null;
-    const ps = promptState(state);
-    if (!ps?.found) return;
+    const term = state.getTerminal();
+    if (!term) return;
+    const lines = readScreen(term);
+    const ps = readPromptState(lines);
+    if (!ps.found) return;
     const mode = ps.mode ?? 'default';
-    if (mode !== state.mode) {
+    let ultracode = state.ultracode;
+    const tag = readUltracodeTag(lines);
+    if (tag) state.tagSeen = true;
+    if (tag || state.tagSeen) {
+      ultracode = tag === true;
+    } else {
+      const reply = readEffortExchange(lines)?.reply;
+      if (reply) ultracode = reply === 'on';
+    }
+    if (mode !== state.mode || ultracode !== state.ultracode) {
       state.mode = mode;
+      state.ultracode = ultracode;
       render(state);
     }
   }, MODE_REFRESH_MS);

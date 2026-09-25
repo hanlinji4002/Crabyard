@@ -1,12 +1,12 @@
 import { esc } from '../dom-utils.js';
 import { getLocale, t } from '../i18n.js';
 import { formatRelativeTime, formatResetTime } from '../claude-history-format.js';
-import { getPlanUsage, limitLevel, pickModelWindow, windowAt, type PlanWindow } from '../plan-usage.js';
+import { getPlanUsage, limitLevel, windowAt, type PlanWindow } from '../plan-usage.js';
 
-// Top pane of the right-hand column: the Claude plan's usage limits as three
-// rings — the 5-hour window, the weekly window across all models, and the
-// weekly per-model window (Fable). Numbers come from Claude Code's statusLine
-// via plan-usage.ts, so they refresh while a Claude conversation runs here.
+// Top pane of the right-hand column: the Claude plan's usage limits as two
+// rings — the 5-hour window and the weekly window. Numbers come from Claude
+// Code's statusLine via plan-usage.ts, so they refresh while a Claude
+// conversation runs here.
 
 const RADIUS = 26;
 const ICON_DOCK_BOTTOM = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 15h18"/></svg>';
@@ -75,17 +75,12 @@ export function renderLiveUsage(
   header.querySelector('.live-usage-hide')!.addEventListener('click', opts.onClose);
   container.appendChild(header);
 
-  const model = usage ? pickModelWindow(usage.scoped) : null;
   const rings: Ring[] = [
     { label: t('liveUsage.fiveHour'), window: usage?.fiveHour ?? null },
     { label: t('liveUsage.weekly'), window: usage?.sevenDay ?? null },
-    {
-      label: model ? t('liveUsage.weeklyModel', { name: model.label }) : t('liveUsage.weeklyModelUnknown'),
-      window: model,
-    },
   ];
-  // A narrow dock keeps the 5-hour ring, then the weekly one, then Fable.
-  const shown = rings.slice(0, Math.max(1, Math.min(3, opts.maxRings ?? 3)));
+  // A narrow dock keeps just the 5-hour ring.
+  const shown = rings.slice(0, Math.max(1, Math.min(rings.length, opts.maxRings ?? 2)));
   const grid = document.createElement('div');
   grid.className = 'live-rings';
   if (!opts.solo) grid.style.gridTemplateColumns = `repeat(${shown.length}, minmax(0, 1fr))`;

@@ -1,7 +1,7 @@
 import { renderSidebarUsage } from './sidebar-usage.js';
 import { renderLiveUsage } from './live-usage.js';
 import { renderChangesPane } from './changes-pane.js';
-import { renderClawdTank, type ClawdPlace } from './clawd-tank.js';
+import { renderClawdTank } from './clawd-tank.js';
 import { refreshSkills, renderSkillsPane } from './skills-pane.js';
 import { appState } from '../state.js';
 import { onClaudeHistoryChange, refreshUsage } from '../claude-history-store.js';
@@ -10,16 +10,15 @@ import { onChangesViewChange, refreshChanges } from '../conversation-changes-sto
 import { onLocaleChange, t } from '../i18n.js';
 import { DOCK_MAX_WIDTH, DOCK_MIN_WIDTH, isFixedPane, planPaneHeights, ringsThatFit, totalsShowFull } from './usage-panel-layout.js';
 
-// The right-hand column, top to bottom: the Clawd tub (when it isn't above the
-// tabs), 本轮修改 and 本对话修改 (the focused conversation's file changes),
+// The right-hand column, top to bottom: the Clawd tub, 本轮修改 and 本对话修改
+// (the focused conversation's file changes),
 // Skills (switches for Claude Code's skills), 当前用量 (plan-limit rings) and
 // the usage totals.
 // Each pane has its own tab-bar toggle and close button; whichever are open
 // share the column and the last one fills it. The edges between panes drag to
 // resize (double-click resets); the totals show everything when their pane is
 // tall enough and just the ranges, cards and mix line when it is not.
-// 当前用量 can instead dock below the conversation, beside the project terminal,
-// and the Clawd tub can sit in the title bar above the tabs.
+// 当前用量 can instead dock below the conversation, beside the project terminal.
 // Visibility, sizes and the dock persist per machine. Terminals only refit on
 // window resize, so geometry changes dispatch one.
 
@@ -65,7 +64,6 @@ const WIDTH_KEY = 'myclaudetui.usagePanel.width';
 const HEIGHTS_KEY = 'myclaudetui.usagePanel.heights';
 const DOCK_KEY = 'myclaudetui.liveUsage.dock';
 const DOCK_WIDTH_KEY = 'myclaudetui.liveUsage.dockWidth';
-const CLAWD_PLACE_KEY = 'myclaudetui.clawd.place';
 /** Bumped when the column gains a pane, so dragged heights sized for the old column don't starve it. */
 const LAYOUT_VERSION_KEY = 'myclaudetui.usagePanel.layoutVersion';
 const LAYOUT_VERSION = '2';
@@ -82,18 +80,15 @@ let panelEl: HTMLElement | null = null;
 let handleEl: HTMLElement | null = null;
 let dockEl: HTMLElement | null = null;
 let dockSplitEl: HTMLElement | null = null;
-/** The Clawd tub's spot in the title bar, above the tabs. */
-let tubSlotEl: HTMLElement | null = null;
-/** Width of 当前用量 docked beside the terminal: it only narrows from the full three-ring width. */
+/** Width of 当前用量 docked beside the terminal: it only narrows from the full two-ring width. */
 let dockWidth = DOCK_MAX_WIDTH;
 /** Rings shown in the dock; recomputed as its width changes. */
-let dockRings: 1 | 2 | 3 = 3;
+let dockRings: 1 | 2 = 2;
 const paneEls: Partial<Record<Pane, HTMLElement>> = {};
 const toggleBtns: Partial<Record<Pane, HTMLElement>> = {};
 const visible: Record<Pane, boolean> = { clawd: true, turn: true, session: true, skills: true, live: true, totals: true };
 let heights: Partial<Record<Pane, number>> = {};
 let liveDock: LiveDock = 'right';
-let clawdPlace: ClawdPlace = 'top';
 /** While an edge is being dragged, the drag owns the pane sizes. */
 let dragging = false;
 /** A fixed pane's (the tub's, 当前用量's) natural height is capped at this share of the column. */
@@ -144,9 +139,9 @@ function refitTerminals(): void {
   window.dispatchEvent(new Event('resize'));
 }
 
-/** Open panes that live in the right column (当前用量 may be docked below, the tub above the tabs). */
+/** Open panes that live in the right column (当前用量 may be docked below instead). */
 function columnPanes(): Pane[] {
-  return PANES.filter((p) => visible[p] && !(p === 'live' && liveDock === 'bottom') && !(p === 'clawd' && clawdPlace === 'top'));
+  return PANES.filter((p) => visible[p] && !(p === 'live' && liveDock === 'bottom'));
 }
 
 function renderPane(pane: Pane): void {
@@ -155,7 +150,7 @@ function renderPane(pane: Pane): void {
   scheduleFit();
   const onClose = () => setPaneVisible(pane, false);
   if (pane === 'clawd') {
-    renderClawdTank(el, { place: clawdPlace, onClose, onTogglePlace: () => setClawdPlace(clawdPlace === 'top' ? 'right' : 'top') });
+    renderClawdTank(el, { onClose });
   } else if (pane === 'turn' || pane === 'session') {
     renderChangesPane(el, { mode: pane, onClose, rerender: () => renderPane(pane) });
   } else if (pane === 'skills') {
@@ -166,7 +161,7 @@ function renderPane(pane: Pane): void {
       onClose,
       dock: liveDock,
       onToggleDock: () => setLiveDock(liveDock === 'right' ? 'bottom' : 'right'),
-      maxRings: liveDock === 'bottom' ? dockRings : 3,
+      maxRings: liveDock === 'bottom' ? dockRings : 2,
     });
   } else {
     renderSidebarUsage(el);
@@ -415,22 +410,8 @@ function layoutColumn(): void {
   });
 }
 
-/** Put the Clawd tub in the title bar above the tabs, or at the top of the column. */
-function placeClawdPane(): void {
-  const el = paneEls.clawd;
-  if (!el || !panelEl) return;
-  if (clawdPlace === 'top') {
-    if (tubSlotEl && el.parentElement !== tubSlotEl) tubSlotEl.appendChild(el);
-  } else if (el.parentElement !== panelEl) {
-    panelEl.insertBefore(el, panelEl.firstElementChild);
-  }
-  el.classList.toggle('clawd-top', clawdPlace === 'top');
-  document.body.classList.toggle('clawd-top', clawdPlace === 'top' && visible.clawd);
-}
-
 function applyLayout(): void {
   placeLivePane();
-  placeClawdPane();
   const inColumn = columnPanes();
   panelEl?.toggleAttribute('hidden', inColumn.length === 0);
   handleEl?.toggleAttribute('hidden', inColumn.length === 0);
@@ -461,14 +442,6 @@ export function setPaneVisible(pane: Pane, next: boolean): void {
     if (pane === 'turn' || pane === 'session') void refreshChanges();
     if (pane === 'skills') void refreshSkills(() => renderPane('skills'));
   }
-  refitTerminals();
-}
-
-export function setClawdPlace(next: ClawdPlace): void {
-  clawdPlace = next;
-  writeStorage(CLAWD_PLACE_KEY, next);
-  applyLayout();
-  renderPane('clawd');
   refitTerminals();
 }
 
@@ -519,7 +492,6 @@ export function initUsagePanel(): void {
   handleEl = document.getElementById('usage-panel-resize-handle');
   dockEl = document.getElementById('bottom-usage-dock');
   dockSplitEl = document.getElementById('bottom-dock-split');
-  tubSlotEl = document.getElementById('clawd-tub-slot');
   for (const pane of PANES) {
     paneEls[pane] = document.getElementById(PANE_IDS[pane]) ?? undefined;
     toggleBtns[pane] = document.getElementById(TOGGLE_IDS[pane]) ?? undefined;
@@ -535,7 +507,6 @@ export function initUsagePanel(): void {
   // The tub and 当前用量 are not resizable.
   delete heights.live;
   delete heights.clawd;
-  clawdPlace = readStorage(CLAWD_PLACE_KEY) === 'right' ? 'right' : 'top';
   liveDock = readStorage(DOCK_KEY) === 'bottom' ? 'bottom' : 'right';
   const savedDockWidth = Number(readStorage(DOCK_WIDTH_KEY));
   if (savedDockWidth) dockWidth = Math.min(DOCK_MAX_WIDTH, Math.max(DOCK_MIN_WIDTH, Math.round(savedDockWidth)));

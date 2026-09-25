@@ -98,9 +98,14 @@ export class ClaudeProvider implements CliProvider {
     if (opts.initialPrompt) {
       args.push(opts.initialPrompt);
     }
-    if (opts.extraArgs) {
-      args.push(...opts.extraArgs.split(/\s+/).filter(Boolean));
-    }
+    const extra = opts.extraArgs ? opts.extraArgs.split(/\s+/).filter(Boolean) : [];
+    args.push(...extra);
+    // Crabyard's defaults: sessions start in bypassPermissions mode at xhigh
+    // effort (Claude Code silently lowers the effort for models without it),
+    // unless the session's own arguments choose otherwise.
+    const has = (flag: string) => extra.some((a) => a === flag || a.startsWith(`${flag}=`));
+    if (!has('--permission-mode') && !has('--dangerously-skip-permissions')) args.push('--permission-mode', 'bypassPermissions');
+    if (!has('--effort')) args.push('--effort', 'xhigh');
     return args;
   }
 

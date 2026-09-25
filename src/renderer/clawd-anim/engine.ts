@@ -18,6 +18,8 @@ export interface Stage {
   rect(x: number, y: number, w: number, h: number, color: string): void;
   /** A filled circle in grid units, for soft round things (dots, ripples). */
   disc(x: number, y: number, r: number, color: string): void;
+  /** A rectangle at fractional cells, for details finer than one cell (glasses, sparks). */
+  fine(x: number, y: number, w: number, h: number, color: string): void;
   alpha(a: number): void;
 }
 
@@ -70,6 +72,12 @@ export function makeStage(ctx: CanvasRenderingContext2D, gw: number, gh: number,
       ctx.beginPath();
       ctx.arc(x * cell, y * cell, r * cell, 0, Math.PI * 2);
       ctx.fill();
+    },
+    fine(x, y, w, h, color) {
+      const x0 = edge(x);
+      const y0 = edge(y);
+      ctx.fillStyle = color;
+      ctx.fillRect(x0, y0, Math.max(1, edge(x + w) - x0), Math.max(1, edge(y + h) - y0));
     },
     alpha(a) {
       ctx.globalAlpha = a;

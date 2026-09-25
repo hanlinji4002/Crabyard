@@ -163,50 +163,57 @@ describe('buildEnv', () => {
 });
 
 describe('buildArgs', () => {
+  const DEFAULTS = ['--permission-mode', 'bypassPermissions', '--effort', 'xhigh'];
+
+  it('keeps a permission mode or effort the session asks for', () => {
+    expect(provider.buildArgs({ cliSessionId: null, isResume: false, extraArgs: '--permission-mode plan' })).toEqual(['--permission-mode', 'plan', '--effort', 'xhigh']);
+    expect(provider.buildArgs({ cliSessionId: null, isResume: false, extraArgs: '--dangerously-skip-permissions --effort=max' })).toEqual(['--dangerously-skip-permissions', '--effort=max']);
+  });
+
   it('returns ["-r", id] when isResume=true with cliSessionId', () => {
     const args = provider.buildArgs({ cliSessionId: 'sid-1', isResume: true, extraArgs: '' });
-    expect(args).toEqual(['-r', 'sid-1']);
+    expect(args).toEqual(['-r', 'sid-1', ...DEFAULTS]);
   });
 
   it('returns ["--session-id", id] when isResume=false with cliSessionId', () => {
     const args = provider.buildArgs({ cliSessionId: 'sid-1', isResume: false, extraArgs: '' });
-    expect(args).toEqual(['--session-id', 'sid-1']);
+    expect(args).toEqual(['--session-id', 'sid-1', ...DEFAULTS]);
   });
 
-  it('returns [] when cliSessionId is null', () => {
+  it('returns just the defaults when cliSessionId is null', () => {
     const args = provider.buildArgs({ cliSessionId: null, isResume: false, extraArgs: '' });
-    expect(args).toEqual([]);
+    expect(args).toEqual([...DEFAULTS]);
   });
 
   it('splits extraArgs on whitespace and appends', () => {
     const args = provider.buildArgs({ cliSessionId: null, isResume: false, extraArgs: '--verbose  --debug' });
-    expect(args).toEqual(['--verbose', '--debug']);
+    expect(args).toEqual(['--verbose', '--debug', ...DEFAULTS]);
   });
 
   it('combines session args and extra args', () => {
     const args = provider.buildArgs({ cliSessionId: 'sid-1', isResume: true, extraArgs: '--verbose' });
-    expect(args).toEqual(['-r', 'sid-1', '--verbose']);
+    expect(args).toEqual(['-r', 'sid-1', '--verbose', ...DEFAULTS]);
   });
 
   it('passes initialPrompt as positional arg', () => {
     const args = provider.buildArgs({ cliSessionId: null, isResume: false, extraArgs: '', initialPrompt: 'fix the linter' });
-    expect(args).toEqual(['fix the linter']);
+    expect(args).toEqual(['fix the linter', ...DEFAULTS]);
   });
 
   it('passes initialPrompt after session-id args', () => {
     const args = provider.buildArgs({ cliSessionId: 'sid-1', isResume: false, extraArgs: '', initialPrompt: 'fix the linter' });
-    expect(args).toEqual(['--session-id', 'sid-1', 'fix the linter']);
+    expect(args).toEqual(['--session-id', 'sid-1', 'fix the linter', ...DEFAULTS]);
   });
 
   it('passes systemPrompt as --append-system-prompt argv pair', () => {
     const args = provider.buildArgs({ cliSessionId: null, isResume: false, extraArgs: '', systemPrompt: 'You are the CMO.' });
-    expect(args).toEqual(['--append-system-prompt', 'You are the CMO.']);
+    expect(args).toEqual(['--append-system-prompt', 'You are the CMO.', ...DEFAULTS]);
   });
 
   it('preserves multi-line systemPrompt as a single argv element', () => {
     const prompt = 'You are the CMO.\n\nFocus on:\n- growth\n- retention';
     const args = provider.buildArgs({ cliSessionId: null, isResume: false, extraArgs: '', systemPrompt: prompt });
-    expect(args).toEqual(['--append-system-prompt', prompt]);
+    expect(args).toEqual(['--append-system-prompt', prompt, ...DEFAULTS]);
   });
 
   it('puts systemPrompt before initialPrompt and extra args', () => {
@@ -217,7 +224,7 @@ describe('buildArgs', () => {
       initialPrompt: 'hello',
       systemPrompt: 'be concise',
     });
-    expect(args).toEqual(['--session-id', 'sid-1', '--append-system-prompt', 'be concise', 'hello', '--verbose']);
+    expect(args).toEqual(['--session-id', 'sid-1', '--append-system-prompt', 'be concise', 'hello', '--verbose', ...DEFAULTS]);
   });
 });
 

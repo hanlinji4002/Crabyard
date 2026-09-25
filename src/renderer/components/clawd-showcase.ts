@@ -3,7 +3,7 @@ import { esc } from '../dom-utils.js';
 import { onLocaleChange, t } from '../i18n.js';
 
 // The Clawd animations (clawd-anim/, drawn after the clawd avatar skill) in two
-// places: a card at the top of the sidebar that cycles through all five, which
+// places: a card at the top of the sidebar that cycles through all of them, which
 // the sidebar header's button or the card's × hides, and a player above
 // "Ready when you are" on a project with no sessions, with play/pause,
 // previous/next and a dot per animation.

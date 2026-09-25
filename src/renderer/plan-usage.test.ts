@@ -3,9 +3,9 @@ import {
   _resetForTesting,
   getPlanUsage,
   limitLevel,
+  mergeWindow,
   onPlanUsageChange,
   parseRateLimits,
-  pickModelWindow,
   updatePlanUsage,
   windowAt,
 } from './plan-usage';
@@ -25,16 +25,14 @@ function memoryStorage(): Storage {
 }
 
 describe('parseRateLimits', () => {
-  it('reads the 5-hour, weekly and per-model windows', () => {
+  it('reads the 5-hour and weekly windows', () => {
     const usage = parseRateLimits({
       five_hour: { used_percentage: 57.4, resets_at: 1_790_000_000 },
       seven_day: { used_percentage: 10, resets_at: 1_790_300_000 },
-      model_scoped: [{ display_name: 'Fable', utilization: 0, resets_at: '2026-09-30T00:00:00Z' }],
     }, NOW);
     expect(usage).toEqual({
       fiveHour: { percent: 57.4, resetsAt: 1_790_000_000_000 },
       sevenDay: { percent: 10, resetsAt: 1_790_300_000_000 },
-      scoped: [{ label: 'Fable', percent: 0, resetsAt: Date.parse('2026-09-30T00:00:00Z') }],
       updatedAt: NOW,
     });
   });
@@ -45,26 +43,10 @@ describe('parseRateLimits', () => {
     expect(usage?.sevenDay).toBeNull();
   });
 
-  it('drops malformed per-model entries and caps how many it keeps', () => {
-    const usage = parseRateLimits({
-      model_scoped: [
-        null,
-        { utilization: 5 },
-        { display_name: '  ', utilization: 5 },
-        { display_name: 'A', utilization: 1 },
-        { display_name: 'B', utilization: 2 },
-        { display_name: 'C', utilization: 3 },
-        { display_name: 'D', utilization: 4 },
-        { display_name: 'E', utilization: 5 },
-      ],
-    }, NOW);
-    expect(usage?.scoped.map((w) => w.label)).toEqual(['A', 'B', 'C', 'D']);
-  });
-
   it('returns null when nothing usable is present', () => {
     expect(parseRateLimits(undefined, NOW)).toBeNull();
     expect(parseRateLimits('x', NOW)).toBeNull();
-    expect(parseRateLimits({ five_hour: {}, seven_day: null, model_scoped: [] }, NOW)).toBeNull();
+    expect(parseRateLimits({ five_hour: {}, seven_day: null }, NOW)).toBeNull();
   });
 });
 
@@ -91,16 +73,6 @@ describe('limitLevel', () => {
     expect(limitLevel(84.9)).toBe('warn');
     expect(limitLevel(85)).toBe('crit');
     expect(limitLevel(100)).toBe('crit');
-  });
-});
-
-describe('pickModelWindow', () => {
-  it('prefers the Fable window', () => {
-    const a = { label: 'Opus', percent: 1, resetsAt: null };
-    const b = { label: 'Claude Fable', percent: 2, resetsAt: null };
-    expect(pickModelWindow([a, b])).toBe(b);
-    expect(pickModelWindow([a])).toBe(a);
-    expect(pickModelWindow([])).toBeNull();
   });
 });
 
@@ -140,9 +112,33 @@ describe('plan usage store', () => {
     expect(getPlanUsage()?.sevenDay).toEqual({ percent: 33, resetsAt: 1_790_300_000_000 });
   });
 
+  it('keeps the fresher report when sessions disagree', () => {
+    // an active session in the current window
+    updatePlanUsage({ five_hour: { used_percentage: 40, resets_at: 1_790_010_000 }, seven_day: { used_percentage: 20, resets_at: 1_790_300_000 } }, NOW);
+    // an idle session still reporting the previous 5-hour window, and a lower weekly figure
+    updatePlanUsage({ five_hour: { used_percentage: 90, resets_at: 1_789_990_000 }, seven_day: { used_percentage: 12, resets_at: 1_790_300_000 } }, NOW + 1000);
+    expect(getPlanUsage()?.fiveHour?.percent).toBe(40);
+    expect(getPlanUsage()?.sevenDay?.percent).toBe(20);
+    // the next window starts over
+    updatePlanUsage({ five_hour: { used_percentage: 3, resets_at: 1_790_028_000 } }, NOW + 2000);
+    expect(getPlanUsage()?.fiveHour?.percent).toBe(3);
+  });
+
   it('works without storage', () => {
     vi.stubGlobal('localStorage', undefined);
     updatePlanUsage({ five_hour: { used_percentage: 5 } }, NOW);
     expect(getPlanUsage()?.fiveHour?.percent).toBe(5);
+  });
+});
+
+describe('mergeWindow', () => {
+  it('prefers a later window, and more usage within the same one', () => {
+    const a = { percent: 50, resetsAt: 1_000_000 };
+    expect(mergeWindow(a, { percent: 5, resetsAt: 20_000_000 })).toEqual({ percent: 5, resetsAt: 20_000_000 });
+    expect(mergeWindow(a, { percent: 90, resetsAt: -5_000_000 })).toBe(a);
+    expect(mergeWindow(a, { percent: 55, resetsAt: 1_030_000 })).toEqual({ percent: 55, resetsAt: 1_030_000 });
+    expect(mergeWindow(a, { percent: 45, resetsAt: 1_000_000 })).toBe(a);
+    expect(mergeWindow(null, a)).toBe(a);
+    expect(mergeWindow(a, null)).toBe(a);
   });
 });

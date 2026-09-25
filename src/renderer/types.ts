@@ -1,5 +1,5 @@
 export type { McpServer, Agent, Skill, Command, ProviderConfig, ClaudeConfig, GitWorktree, GitFileEntry, CostData, ProviderId, CliProviderMeta, CliProviderCapabilities, ClipboardSource } from '../shared/types.js';
-import type { CostData, ProviderConfig, GitWorktree, ProviderId, CliProviderMeta, FsChange, ClaudeConversationList, ClaudeUsageReport, ConversationChanges, ClipboardSource, SkillInfo, SkillScope } from '../shared/types.js';
+import type { CostData, ProviderConfig, GitWorktree, ProviderId, CliProviderMeta, FsChange, ClaudeConversationList, ClaudeUsageReport, ConversationChanges, ClipboardSource, SkillInfo, SkillScope, PluginInfo } from '../shared/types.js';
 
 export interface VibeyardApi {
   pty: {
@@ -82,6 +82,10 @@ export interface VibeyardApi {
   skills: {
     list(projectPath?: string): Promise<SkillInfo[]>;
     setEnabled(name: string, scope: SkillScope, projectPath: string | undefined, enabled: boolean): Promise<{ ok: boolean; error?: string }>;
+  };
+  plugins: {
+    list(): Promise<PluginInfo[]>;
+    setEnabled(id: string, enabled: boolean): Promise<{ ok: boolean; error?: string }>;
   };
   claudeHistory: {
     list(force?: boolean): Promise<ClaudeConversationList>;

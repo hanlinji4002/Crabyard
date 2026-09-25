@@ -167,6 +167,7 @@ function showPanel(projectId: string): void {
 
   panelEl.classList.remove('hidden');
   resizeHandleEl.classList.remove('hidden');
+  syncToggleButton();
 
   const height = project.terminalPanelHeight ?? 200;
   panelEl.style.height = `${height}px`;
@@ -189,7 +190,16 @@ function hidePanel(): void {
   }
   panelEl.classList.add('hidden');
   resizeHandleEl.classList.add('hidden');
+  syncToggleButton();
   requestAnimationFrame(() => fitAllVisible());
+}
+
+/** The sidebar header's terminal button shows whether the panel is open. */
+function syncToggleButton(): void {
+  const open = !panelEl.classList.contains('hidden');
+  const btn = document.getElementById('btn-toggle-terminal');
+  btn?.classList.toggle('active', open);
+  btn?.setAttribute('aria-pressed', String(open));
 }
 
 function getActiveShell(projectId: string): ShellTerminalInstance | undefined {

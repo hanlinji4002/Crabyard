@@ -75,8 +75,8 @@ describe('totalsShowFull', () => {
 
 describe('ringsThatFit', () => {
   it('shows three rings at full width, then drops Fable, then the weekly ring', () => {
-    expect(ringsThatFit(DOCK_MAX_WIDTH)).toBe(3);
-    expect(ringsThatFit(DOCK_MAX_WIDTH - 1)).toBe(2);
+    expect(ringsThatFit(DOCK_MAX_WIDTH)).toBe(2);
+    expect(ringsThatFit(DOCK_MAX_WIDTH + 200)).toBe(2);
     expect(ringsThatFit(DOCK_MIN_WIDTH + 100)).toBe(2);
     expect(ringsThatFit(DOCK_MIN_WIDTH + 99)).toBe(1);
     expect(ringsThatFit(DOCK_MIN_WIDTH)).toBe(1);

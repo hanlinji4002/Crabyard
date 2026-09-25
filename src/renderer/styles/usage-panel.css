@@ -231,7 +231,9 @@
   background: var(--bg-hover);
 }
 
-/* Tab-bar toggles show their state like pressed tools. */
+/* Tab-bar and sidebar-header toggles show their state like pressed tools. */
+#btn-toggle-terminal.active,
+#btn-toggle-showcase.active,
 #btn-toggle-clawd.active,
 #btn-toggle-skills.active,
 #btn-toggle-usage.active,
@@ -263,7 +265,7 @@
 
 .live-rings {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 

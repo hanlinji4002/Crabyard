@@ -20,7 +20,11 @@ export type ClawdAnim =
   | 'conducting'
   | 'wizard'
   | 'beacon'
-  | 'sweeping';
+  | 'sweeping'
+  /** X eyes: the turn died on an API error, or the CLI quit abnormally. */
+  | 'dizzy'
+  /** Coming back to life once the user returns to the conversation. */
+  | 'wake';
 
 const TOOL_ANIMS: Record<string, ClawdAnim> = {
   Read: 'debugger',
@@ -60,6 +64,8 @@ export interface ClawdActivity {
   compactingSince?: number;
   /** Subagents started and not yet stopped in this turn. */
   subagents: number;
+  /** When this turn ended on an API error (StopFailure). */
+  failedAt?: number;
 }
 
 /** The current turn's activity, read back from a session's hook events (oldest first). */
@@ -69,10 +75,17 @@ export function deriveActivity(events: readonly InspectorEvent[]): ClawdActivity
   let stopped = 0;
   let toolSeen = false;
   let compactSeen = false;
+  let endSeen = false;
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i];
     if (e.hookEvent === 'UserPromptSubmit') break;
     switch (e.hookEvent) {
+      case 'Stop':
+      case 'StopFailure':
+        // The turn's last ending decides: an error, or a normal finish.
+        if (!endSeen && e.hookEvent === 'StopFailure') out.failedAt = e.timestamp;
+        endSeen = true;
+        break;
       case 'SubagentStart':
         started++;
         break;

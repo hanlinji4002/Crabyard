@@ -185,11 +185,11 @@ html, body {
 
 #app {
   display: flex;
-  height: calc(100vh - var(--titlebar-h, 0px));
+  height: 100vh;
 }
 
 body.debug-panel-open #app {
-  height: calc(100vh - var(--debug-panel-height) - var(--titlebar-h, 0px));
+  height: calc(100vh - var(--debug-panel-height));
 }
 
 /* Empty state */

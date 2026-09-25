@@ -3,7 +3,7 @@ import { esc } from '../../dom-utils.js';
 import { getGitStatus, getActiveGitPath, refreshGitStatus } from '../../git-status.js';
 import { showModal, closeModal, setModalError } from '../modal.js';
 import { hideTabContextMenu, getActiveContextMenu, setActiveContextMenu, positionMenu } from './menu.js';
-import { gitStatusEl } from './dom.js';
+import { gitStatusEl, tabListEl } from './dom.js';
 
 export function renderGitStatus(): void {
   const project = appState.activeProject;
@@ -37,6 +37,53 @@ export function renderGitStatus(): void {
   if (status.conflicted > 0) parts.push(`<span class="git-conflicted">!${status.conflicted}</span>`);
 
   gitStatusEl.innerHTML = parts.join(' ');
+}
+
+/**
+ * The git summary (branch, ahead/behind, staged/modified/untracked) isn't kept
+ * in the tab bar; it pops up as a card under a session tab while the pointer
+ * rests on the tab, and stays while the pointer moves onto the card (a click
+ * on it still opens the branch switcher).
+ */
+export function initGitHoverCard(): void {
+  let showTimer: ReturnType<typeof setTimeout> | null = null;
+  let hideTimer: ReturnType<typeof setTimeout> | null = null;
+  const clear = () => {
+    if (showTimer) clearTimeout(showTimer);
+    if (hideTimer) clearTimeout(hideTimer);
+    showTimer = hideTimer = null;
+  };
+  const hide = () => {
+    clear();
+    gitStatusEl.classList.remove('git-hover-show');
+  };
+  const hideSoon = () => {
+    if (showTimer) clearTimeout(showTimer);
+    showTimer = null;
+    if (!hideTimer) hideTimer = setTimeout(hide, 180);
+  };
+  tabListEl.addEventListener('mouseover', (e) => {
+    const tab = (e.target as HTMLElement).closest<HTMLElement>('.tab-item');
+    if (!tab) return;
+    if (hideTimer) clearTimeout(hideTimer);
+    hideTimer = null;
+    if (showTimer) clearTimeout(showTimer);
+    showTimer = setTimeout(() => {
+      showTimer = null;
+      if (!gitStatusEl.innerHTML.trim() || !tab.isConnected) return;
+      const r = tab.getBoundingClientRect();
+      gitStatusEl.style.left = `${Math.round(r.left + 8)}px`;
+      gitStatusEl.style.top = `${Math.round(r.bottom + 6)}px`;
+      gitStatusEl.classList.add('git-hover-show');
+    }, 250);
+  });
+  tabListEl.addEventListener('mouseleave', hideSoon);
+  gitStatusEl.addEventListener('mouseenter', () => {
+    if (hideTimer) clearTimeout(hideTimer);
+    hideTimer = null;
+  });
+  gitStatusEl.addEventListener('mouseleave', hideSoon);
+  gitStatusEl.addEventListener('click', hide);
 }
 
 export async function showBranchContextMenu(e: MouseEvent): Promise<void> {

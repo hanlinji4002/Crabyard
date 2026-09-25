@@ -18,6 +18,7 @@ import { searchSessions } from './session-deep-search';
 import { conversationPathsForTrash, forgetConversation, getClaudeUsage, listClaudeConversations } from './claude-history';
 import { getConversationChanges } from './conversation-changes';
 import { listSkills, setSkillEnabled } from './skills';
+import { listPlugins, setPluginEnabled } from './plugins';
 import { windowBackground } from './window-theme';
 import type { ProviderId, GitFileEntry, SettingsValidationResult, ReadFileResult, FileStatResult } from '../shared/types';
 import { expandUserPath, isLikelyBinaryFile, isMacPackagePath } from './fs-utils';
@@ -427,6 +428,9 @@ export function registerIpcHandlers(): void {
     if (scope === 'project' && !project) return { ok: false, error: 'unknown project' };
     return setSkillEnabled(name, scope, project, enabled);
   });
+  ipcMain.handle('plugins:list', () => listPlugins());
+  ipcMain.handle('plugins:setEnabled', (_event, id: unknown, enabled: unknown) =>
+    typeof id === 'string' && typeof enabled === 'boolean' ? setPluginEnabled(id, enabled) : { ok: false, error: 'invalid request' });
 
   ipcMain.handle('provider:checkBinary', (_event, providerId: ProviderId = 'claude') => {
     const provider = getProvider(providerId);

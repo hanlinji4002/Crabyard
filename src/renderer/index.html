@@ -10,12 +10,6 @@
   <link rel="stylesheet" href="xterm.css">
 </head>
 <body>
-  <div id="titlebar">
-    <div id="titlebar-side"></div>
-    <div id="titlebar-main">
-      <div id="clawd-tub-slot"></div>
-    </div>
-  </div>
   <div id="app">
     <div id="sidebar">
       <div id="sidebar-header">
@@ -23,6 +17,10 @@
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2.4"/><line x1="9" y1="4" x2="9" y2="20"/></svg>
         </button>
         <div class="sidebar-header-actions">
+          <button id="btn-toggle-terminal" class="icon-btn" title="Toggle Terminal (Ctrl+`)" aria-label="Toggle Terminal"></button>
+          <button id="btn-toggle-session-changes" class="icon-btn" aria-pressed="false">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7h-3a2 2 0 0 1-2-2V2"/><path d="M9 18a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h7l4 4v10a2 2 0 0 1-2 2Z"/><path d="M3 7.6v12.8A1.6 1.6 0 0 0 4.6 22h9.8"/></svg>
+          </button>
           <button id="btn-toggle-showcase" class="icon-btn" aria-pressed="false">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M10.2 9.4v5.2l4.4-2.6z" fill="currentColor"/></svg>
           </button>
@@ -47,16 +45,12 @@
         <div id="tab-list"></div>
         <div id="git-status"></div>
         <div id="tab-actions">
-          <button id="btn-toggle-terminal" class="icon-btn" title="Toggle Terminal (Ctrl+`)" aria-label="Toggle Terminal"></button>
           <button id="btn-toggle-swarm" class="icon-btn" aria-pressed="false"></button>
           <button id="btn-toggle-clawd" class="icon-btn" aria-pressed="false">
             <svg viewBox="0 -1 15 11" width="15" height="11" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M2 0h11v7H2zM0 3h2v2H0zM13 3h2v2h-2zM3 7h1v2H3zM5 7h1v2H5zM9 7h1v2H9zM11 7h1v2h-1zM4 2h1v2H4zM10 2h1v2h-1z"/></svg>
           </button>
           <button id="btn-toggle-turn-changes" class="icon-btn" aria-pressed="false">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M9 10h6"/><path d="M12 7v6"/><path d="M9 17h6"/></svg>
-          </button>
-          <button id="btn-toggle-session-changes" class="icon-btn" aria-pressed="false">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7h-3a2 2 0 0 1-2-2V2"/><path d="M9 18a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h7l4 4v10a2 2 0 0 1-2 2Z"/><path d="M3 7.6v12.8A1.6 1.6 0 0 0 4.6 22h9.8"/></svg>
           </button>
           <button id="btn-toggle-skills" class="icon-btn" aria-pressed="false">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 3.5l1.9 4.9 4.9 1.9-4.9 1.9L11 17.1l-1.9-4.9-4.9-1.9 4.9-1.9z"/><path d="M18.5 14.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg>

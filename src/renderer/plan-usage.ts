@@ -1,9 +1,11 @@
-// Claude plan usage limits — the 5-hour window, the weekly window and any
-// per-model weekly windows (e.g. Fable) — as Claude Code reports them in its
-// statusLine payload's `rate_limits`, the same source claude-hud reads. They
-// are account-wide, so the latest report from any session wins. The last
-// snapshot is kept in localStorage so the panel has numbers after a restart,
-// until a running session reports again.
+// Claude plan usage limits — the 5-hour window and the weekly window — as
+// Claude Code reports them in its statusLine payload's `rate_limits`, the same
+// source claude-hud reads. They
+// are account-wide, but each Claude Code process reports what it cached at
+// its own last request, so an idle session keeps sending old numbers: reports
+// are merged window by window, keeping the freshest (see mergeWindow). The
+// last snapshot is kept in localStorage so the panel has numbers after a
+// restart, until a running session reports again.
 
 export interface PlanWindow {
   /** Share of the window used, 0–100; null when Claude Code sent no value. */
@@ -12,14 +14,9 @@ export interface PlanWindow {
   resetsAt: number | null;
 }
 
-export interface ScopedPlanWindow extends PlanWindow {
-  label: string;
-}
-
 export interface PlanUsage {
   fiveHour: PlanWindow | null;
   sevenDay: PlanWindow | null;
-  scoped: ScopedPlanWindow[];
   /** Epoch ms of the report this snapshot came from. */
   updatedAt: number;
 }
@@ -32,8 +29,6 @@ export interface PlanWindowNow extends PlanWindow {
 const STORAGE_KEY = 'myclaudetui.planUsage';
 /** Unchanged reports still refresh the stored timestamp, but at most this often. */
 const PERSIST_EVERY_MS = 60_000;
-const MAX_SCOPED = 4;
-const MAX_LABEL = 40;
 
 function toPercent(value: unknown): number | null {
   if (typeof value !== 'number' || !Number.isFinite(value)) return null;
@@ -64,22 +59,29 @@ function parseWindow(raw: unknown): PlanWindow | null {
 /** Parse a statusLine `rate_limits` object; null when it carries nothing usable. */
 export function parseRateLimits(raw: unknown, now: number): PlanUsage | null {
   if (!raw || typeof raw !== 'object') return null;
-  const r = raw as { five_hour?: unknown; seven_day?: unknown; model_scoped?: unknown };
+  const r = raw as { five_hour?: unknown; seven_day?: unknown };
   const fiveHour = parseWindow(r.five_hour);
   const sevenDay = parseWindow(r.seven_day);
-  const scoped: ScopedPlanWindow[] = [];
-  if (Array.isArray(r.model_scoped)) {
-    for (const entry of r.model_scoped) {
-      if (scoped.length >= MAX_SCOPED) break;
-      if (!entry || typeof entry !== 'object') continue;
-      const e = entry as { display_name?: unknown; utilization?: unknown; resets_at?: unknown };
-      const label = typeof e.display_name === 'string' ? e.display_name.trim().slice(0, MAX_LABEL) : '';
-      if (!label) continue;
-      scoped.push({ label, percent: toPercent(e.utilization), resetsAt: toEpochMs(e.resets_at) });
-    }
-  }
-  if (!fiveHour && !sevenDay && scoped.length === 0) return null;
-  return { fiveHour, sevenDay, scoped, updatedAt: now };
+  if (!fiveHour && !sevenDay) return null;
+  return { fiveHour, sevenDay, updatedAt: now };
+}
+
+/** Reset times within this of each other are the same window. */
+const SAME_WINDOW_MS = 60_000;
+
+/**
+ * The fresher of two reports of one limit window: a later reset time means a
+ * newer window (an old one from an idle session is ignored), and within one
+ * window usage only grows.
+ */
+export function mergeWindow<W extends PlanWindow>(prev: W | null | undefined, next: W | null | undefined): W | null {
+  if (!next) return prev ?? null;
+  if (!prev) return next;
+  const pr = prev.resetsAt ?? 0;
+  const nr = next.resetsAt ?? 0;
+  if (nr > pr + SAME_WINDOW_MS) return next;
+  if (nr < pr - SAME_WINDOW_MS) return prev;
+  return (next.percent ?? -1) >= (prev.percent ?? -1) ? next : prev;
 }
 
 /** `window` as of `now`: once its reset time has passed, the usage is back to 0%. */
@@ -96,11 +98,6 @@ export function limitLevel(percent: number): 'ok' | 'warn' | 'crit' {
   return 'ok';
 }
 
-/** The per-model window to show: Fable when present, else the first one. */
-export function pickModelWindow(scoped: ScopedPlanWindow[]): ScopedPlanWindow | null {
-  return scoped.find((w) => /fable/i.test(w.label)) ?? scoped[0] ?? null;
-}
-
 let current: PlanUsage | null | undefined;
 let lastPersist = 0;
 const listeners = new Set<() => void>();
@@ -110,7 +107,7 @@ function load(): PlanUsage | null {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as PlanUsage;
-    return parsed && typeof parsed.updatedAt === 'number' && Array.isArray(parsed.scoped) ? parsed : null;
+    return parsed && typeof parsed.updatedAt === 'number' ? parsed : null;
   } catch {
     return null;
   }
@@ -122,7 +119,7 @@ export function getPlanUsage(): PlanUsage | null {
 }
 
 function sameWindows(a: PlanUsage, b: PlanUsage): boolean {
-  return JSON.stringify([a.fiveHour, a.sevenDay, a.scoped]) === JSON.stringify([b.fiveHour, b.sevenDay, b.scoped]);
+  return JSON.stringify([a.fiveHour, a.sevenDay]) === JSON.stringify([b.fiveHour, b.sevenDay]);
 }
 
 /**
@@ -131,9 +128,16 @@ function sameWindows(a: PlanUsage, b: PlanUsage): boolean {
  * moves forward so "updated …" stays honest.
  */
 export function updatePlanUsage(raw: unknown, now = Date.now()): void {
-  const next = parseRateLimits(raw, now);
-  if (!next) return;
+  const report = parseRateLimits(raw, now);
+  if (!report) return;
   const prev = getPlanUsage();
+  const next: PlanUsage = prev
+    ? {
+        ...report,
+        fiveHour: mergeWindow(prev.fiveHour, report.fiveHour),
+        sevenDay: mergeWindow(prev.sevenDay, report.sevenDay),
+      }
+    : report;
   current = next;
   const changed = !prev || !sameWindows(prev, next);
   if (changed || now - lastPersist >= PERSIST_EVERY_MS) {

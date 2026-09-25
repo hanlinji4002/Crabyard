@@ -144,16 +144,27 @@
 }
 
 /* Git status indicator */
+/* The git summary floats as a card under the session tab being hovered
+   (tab-bar/git-status-bar.ts), instead of sitting in the tab bar. */
 #git-status {
-  display: flex;
+  position: fixed;
+  z-index: 1000;
+  display: none;
   align-items: center;
   gap: 6px;
-  padding: 0 10px;
-  font-size: 11px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+  font-size: 11.5px;
   white-space: nowrap;
   user-select: none;
-  flex-shrink: 0;
   cursor: pointer;
+}
+
+#git-status.git-hover-show {
+  display: flex;
 }
 
 #git-status:empty {

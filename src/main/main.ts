@@ -47,9 +47,6 @@ function createWindow(): void {
     title: 'Crabyard',
     icon: path.join(__dirname, '..', '..', '..', 'build', 'icon.png'),
     backgroundColor: windowBackground(theme),
-    // The renderer draws its own title bar (#titlebar, 40px) so the Clawd tub
-    // can sit in it; the traffic lights stay, centred in that strip.
-    ...(isMac ? { titleBarStyle: 'hidden' as const, trafficLightPosition: { x: 16, y: 14 } } : {}),
     webPreferences: {
       preload: path.join(__dirname, '..', '..', 'preload', 'preload', 'preload.js'),
       nodeIntegration: false,

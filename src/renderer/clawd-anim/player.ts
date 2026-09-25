@@ -4,9 +4,25 @@ import { umbrellaAnimation } from './anim-umbrella.js';
 import { gardenAnimation } from './anim-garden.js';
 import { parkScene } from './scene-park.js';
 import { beachScene } from './scene-beach.js';
+import { luffyAnimation } from './anim-luffy.js';
+import { narutoAnimation } from './anim-naruto.js';
+import { potterAnimation } from './anim-potter.js';
+import { akatsukiAnimation } from './anim-akatsuki.js';
+import { quidditchAnimation } from './anim-quidditch.js';
 
-/** The five Clawd animations, alternating animation mode and scene mode. */
-export const CLAWD_ANIMATIONS: ClawdAnimation[] = [codingAnimation, parkScene, umbrellaAnimation, beachScene, gardenAnimation];
+/** The Clawd animations: the skill's character pieces in between the others and the two scenes. */
+export const CLAWD_ANIMATIONS: ClawdAnimation[] = [
+  codingAnimation,
+  luffyAnimation,
+  parkScene,
+  narutoAnimation,
+  umbrellaAnimation,
+  akatsukiAnimation,
+  potterAnimation,
+  beachScene,
+  gardenAnimation,
+  quidditchAnimation,
+];
 
 export interface PlayerOptions {
   /** Loops of each animation before moving on to the next. */

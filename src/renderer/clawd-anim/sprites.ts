@@ -11,6 +11,9 @@ const SPARKLE = '#FFD700';
 
 export type Eyes = 'forward' | 'right' | 'left' | 'down' | 'up' | 'blink' | 'sparkle';
 
+/** Animation-mode hats: the skill's straw / party, and its anime set (ninja, akatsuki, wizard, sorting). */
+export type Hat = 'straw' | 'party' | 'ninja' | 'akatsuki' | 'wizard' | 'sorting';
+
 export interface Pose {
   eyes?: Eyes;
   /** −4 (raised) … +4 (lowered). */
@@ -19,7 +22,19 @@ export interface Pose {
   /** Horizontal swing of each foot, −1 … +1. */
   legs?: [number, number, number, number];
   color?: string;
-  hat?: 'straw' | 'party';
+  hat?: Hat;
+  /** Worn over the body: Luffy's open red vest or the Akatsuki cloak. */
+  outfit?: 'vest' | 'cloak';
+  /** Round glasses; 'potter' adds the lightning scar. */
+  face?: 'glasses' | 'potter';
+  /** Eye colour instead of black (or gold for sparkle eyes), e.g. a Sharingan red. */
+  eyeColor?: string;
+  /** Frame number that sets the headband tails, kasa tassels and cloak hem fluttering. */
+  flutter?: number;
+  /** Which way the wind blows those, −1 left or +1 right (default). */
+  wind?: number;
+  /** A full belly after a big meal, 0–2. */
+  belly?: number;
 }
 
 function eyeOffset(eyes: Eyes): [number, number] {
@@ -32,6 +47,12 @@ function eyeOffset(eyes: Eyes): [number, number] {
   }
 }
 
+/** A 0/1 ripple for cloth ends, travelling along them. */
+function ripple(flutter: number | undefined, k: number): number {
+  if (flutter === undefined) return 0;
+  return Math.sin(flutter * 0.45 - k * 1.3) > 0.2 ? 1 : 0;
+}
+
 /** Animation-mode Clawd, 14×8, with (ox, oy) the top-left of his box. */
 export function drawClawd(s: Stage, ox: number, oy: number, pose: Pose = {}): void {
   const c = pose.color ?? CLAWD;
@@ -39,30 +60,164 @@ export function drawClawd(s: Stage, ox: number, oy: number, pose: Pose = {}): vo
   ox = Math.round(ox);
   oy = Math.round(oy);
   s.rect(ox + 3, oy, 8, 6, c);
-  s.rect(ox + 1, oy + 2 + Math.round(pose.armL ?? 0), 2, 2, c);
-  s.rect(ox + 11, oy + 2 + Math.round(pose.armR ?? 0), 2, 2, c);
+  const belly = Math.round(pose.belly ?? 0);
+  if (belly >= 1) s.rect(ox + 2, oy + 3, 10, 3, c);
+  if (belly >= 2) {
+    s.rect(ox + 1, oy + 4, 12, 2, c);
+    s.rect(ox + 3, oy + 6, 8, 1, c);
+  }
   const legs = pose.legs ?? [0, 0, 0, 0];
   [3, 5, 8, 10].forEach((col, i) => {
     s.px(ox + col, oy + 6, c);
     s.px(ox + col + legs[i], oy + 7, c);
   });
+  if (pose.outfit === 'vest') drawVest(s, ox, oy);
+  else if (pose.outfit === 'cloak') drawCloak(s, ox, oy, pose.flutter, pose.wind ?? 1);
+  s.rect(ox + 1, oy + 2 + Math.round(pose.armL ?? 0), 2, 2, c);
+  s.rect(ox + 11, oy + 2 + Math.round(pose.armR ?? 0), 2, 2, c);
+  if (pose.face) drawLenses(s, ox, oy);
   if (eyes !== 'blink') {
-    const [dx, dy] = eyeOffset(eyes);
-    const col = eyes === 'sparkle' ? SPARKLE : EYE;
-    s.px(ox + 4 + dx, oy + 1 + dy, col);
-    s.px(ox + 9 + dx, oy + 1 + dy, col);
+    const [dx, eyeDy] = eyeOffset(eyes);
+    // a headband covers row 0, so eyes can't look up under it
+    const dy = pose.hat === 'ninja' ? Math.max(0, eyeDy) : eyeDy;
+    const col = pose.eyeColor ?? (eyes === 'sparkle' ? SPARKLE : EYE);
+    if (pose.face) {
+      // behind glasses the eyes move half a cell, so they stay inside the lenses
+      s.fine(ox + 4 + dx * 0.5, oy + 1.5 + dy * 0.5, 1, 1, col);
+      s.fine(ox + 9 + dx * 0.5, oy + 1.5 + dy * 0.5, 1, 1, col);
+    } else {
+      s.px(ox + 4 + dx, oy + 1 + dy, col);
+      s.px(ox + 9 + dx, oy + 1 + dy, col);
+    }
   }
-  if (pose.hat === 'straw') {
-    s.rect(ox + 1, oy - 1, 12, 1, '#D8B878');
-    s.rect(ox + 3, oy - 2, 8, 1, '#DC2828');
-    s.rect(ox + 4, oy - 3, 6, 1, '#D8B878');
-  } else if (pose.hat === 'party') {
-    s.rect(ox + 4, oy - 1, 6, 1, '#FF88AA');
-    s.rect(ox + 5, oy - 2, 4, 1, '#FF88AA');
-    s.px(ox + 5, oy - 2, '#FFDD33');
-    s.px(ox + 8, oy - 2, '#FFDD33');
-    s.rect(ox + 6, oy - 3, 2, 1, '#FF88AA');
-    s.rect(ox + 6, oy - 4, 2, 1, '#FFDD33');
+  if (pose.face) drawGlassFrames(s, ox, oy, pose.face === 'potter');
+  if (pose.hat) drawHat(s, ox, oy, pose.hat, pose.flutter, pose.wind ?? 1);
+}
+
+/** Luffy's red vest, open down the front. */
+function drawVest(s: Stage, ox: number, oy: number): void {
+  s.rect(ox + 3, oy + 2, 3, 4, '#DC2828');
+  s.rect(ox + 8, oy + 2, 3, 4, '#DC2828');
+  s.rect(ox + 5, oy + 3, 1, 3, '#B81E1E');
+  s.rect(ox + 8, oy + 3, 1, 3, '#B81E1E');
+  s.px(ox + 4, oy + 3, '#FFDD33');
+  s.px(ox + 4, oy + 5, '#FFDD33');
+}
+
+/** The Akatsuki cloak: black with red clouds edged in white, its hem over the legs. */
+function drawCloak(s: Stage, ox: number, oy: number, flutter: number | undefined, wind: number): void {
+  const k = '#26262B';
+  s.rect(ox + 3, oy + 2, 8, 5, k);
+  // high collar
+  s.rect(ox + 3, oy + 2, 8, 1, '#34343A');
+  // two red clouds edged in white
+  for (const cx of [ox + 3, ox + 8]) {
+    s.px(cx, oy + 4, '#F0F0F0');
+    s.px(cx + 1, oy + 4, '#DC2828');
+    s.px(cx + 2, oy + 4, '#F0F0F0');
+    s.rect(cx, oy + 5, 3, 1, '#DC2828');
+  }
+  // hem: sways with the wind, the outer feet peek out below it
+  const sway = flutter === undefined ? 0 : ripple(flutter, 0) * Math.sign(wind);
+  s.rect(ox + 4 + sway, oy + 7, 6, 1, k);
+}
+
+/** Round glasses, drawn at half-cell detail and centred on the eyes: first the lenses' tint… */
+function drawLenses(s: Stage, ox: number, oy: number): void {
+  s.alpha(0.3);
+  s.fine(ox + 3.5, oy + 1, 2, 2, '#FFFFFF');
+  s.fine(ox + 8.5, oy + 1, 2, 2, '#FFFFFF');
+  s.alpha(1);
+}
+
+/** …then, over the eyes, the frames; 'potter' adds the lightning scar. */
+function drawGlassFrames(s: Stage, ox: number, oy: number, scar: boolean): void {
+  const frame = '#2B2B30';
+  const h = 0.5;
+  for (const lx of [ox + 3, ox + 8]) {
+    const top = oy + 0.5;
+    s.fine(lx + h, top, 2, h, frame);
+    s.fine(lx + h, top + 2.5, 2, h, frame);
+    s.fine(lx, top + h, h, 2, frame);
+    s.fine(lx + 2.5, top + h, h, 2, frame);
+  }
+  s.fine(ox + 6, oy + 1.5, 2, h, frame);
+  if (scar) {
+    // a gold lightning bolt on the forehead, between the lenses
+    const g = '#FFD700';
+    s.fine(ox + 7, oy, h, h, g);
+    s.fine(ox + 6.5, oy + h, h, h, g);
+    s.fine(ox + 7, oy + h, h, h, g);
+    s.fine(ox + 6.5, oy + 1, h, h, g);
+  }
+}
+
+/** Rows of the headband's long tail at its 2nd and 3rd cell, one step of its ripple each. */
+const TAIL_WAVE: [number, number][] = [[0, 0], [0, 1], [1, 1], [1, 0]];
+
+function hatRows(s: Stage, ox: number, oy: number, rows: [number, number, number, string][]): void {
+  for (const [dy, from, to, color] of rows) s.rect(ox + from, oy + dy, to - from + 1, 1, color);
+}
+
+function drawHat(s: Stage, ox: number, oy: number, hat: Hat, flutter: number | undefined, wind: number): void {
+  switch (hat) {
+    case 'straw':
+      s.rect(ox + 1, oy - 1, 12, 1, '#D8B878');
+      s.rect(ox + 3, oy - 2, 8, 1, '#DC2828');
+      s.rect(ox + 4, oy - 3, 6, 1, '#D8B878');
+      break;
+    case 'party':
+      s.rect(ox + 4, oy - 1, 6, 1, '#FF88AA');
+      s.rect(ox + 5, oy - 2, 4, 1, '#FF88AA');
+      s.px(ox + 5, oy - 2, '#FFDD33');
+      s.px(ox + 8, oy - 2, '#FFDD33');
+      s.rect(ox + 6, oy - 3, 2, 1, '#FF88AA');
+      s.rect(ox + 6, oy - 4, 2, 1, '#FFDD33');
+      break;
+    case 'ninja': {
+      // Konoha forehead protector: blue band, metal plate with the leaf mark, tails behind
+      s.rect(ox + 3, oy, 8, 1, '#3366CC');
+      s.rect(ox + 5, oy, 4, 1, '#9AA3AD');
+      s.px(ox + 5, oy, '#C9D1DA');
+      s.rect(ox + 6, oy, 2, 1, '#3B3F46');
+      // two tails off the knot, rippling when there's wind
+      const dir = wind < 0 ? -1 : 1;
+      const knot = dir > 0 ? ox + 10 : ox + 3;
+      const phase = flutter === undefined ? 0 : Math.floor(flutter / 4) % 4;
+      const [a2, a3] = TAIL_WAVE[phase];
+      s.px(knot + dir, oy, '#3366CC');
+      s.px(knot + dir * 2, oy + a2, '#3366CC');
+      s.px(knot + dir * 3, oy + a3, '#3366CC');
+      s.px(knot + dir, oy + 1, '#2A55AD');
+      s.px(knot + dir * 2, oy + (phase === 0 ? 1 : 2), '#2A55AD');
+      break;
+    }
+    case 'akatsuki': {
+      // the wide conical kasa, red at the brim's ends, paper tassels hanging off it
+      const straw = '#FFDD33';
+      const weave = '#E3BD22';
+      hatRows(s, ox, oy, [[-1, 0, 13, straw], [-2, 2, 11, straw], [-3, 4, 9, straw], [-4, 5, 8, straw], [-5, 6, 7, straw]]);
+      hatRows(s, ox, oy, [[-2, 4, 4, weave], [-2, 9, 9, weave], [-3, 6, 6, weave], [-1, 3, 3, weave], [-1, 10, 10, weave], [-1, 7, 7, weave]]);
+      s.px(ox, oy - 1, '#DC2828');
+      s.px(ox + 13, oy - 1, '#DC2828');
+      for (const [tx, k] of [[1, 0], [12, 1]] as const) {
+        s.px(ox + tx, oy, '#F0F0F0');
+        s.px(ox + tx, oy + 1, '#F0F0F0');
+        s.px(ox + tx + (flutter === undefined ? 0 : ripple(flutter, k) * Math.sign(wind)), oy + 2, '#F0F0F0');
+      }
+      break;
+    }
+    case 'wizard':
+      hatRows(s, ox, oy, [[-1, 2, 11, '#443388'], [-2, 3, 10, '#443388'], [-3, 4, 9, '#443388'], [-4, 5, 8, '#443388'], [-5, 5, 8, '#443388'], [-6, 6, 7, '#443388'], [-7, 6, 6, '#443388']]);
+      for (const [dx, dy] of [[7, -2], [5, -3], [8, -4], [6, -5]]) s.px(ox + dx, oy + dy, '#BBAAEE');
+      break;
+    case 'sorting':
+      // the Sorting Hat: patched brown felt, a crease for a mouth, its tip flopped over
+      hatRows(s, ox, oy, [[-1, 1, 12, '#8B5520'], [-2, 3, 10, '#8B5520'], [-3, 4, 9, '#8B5520'], [-4, 5, 8, '#8B5520'], [-5, 8, 9, '#8B5520'], [-6, 10, 10, '#8B5520']]);
+      s.px(ox + 5, oy - 3, '#996633');
+      s.px(ox + 6, oy - 4, '#996633');
+      s.rect(ox + 5, oy - 2, 4, 1, '#5E3A15');
+      break;
   }
 }
 

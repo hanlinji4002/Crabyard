@@ -60,6 +60,12 @@ describe('deriveActivity', () => {
     expect(a).toEqual({ subagents: 0 });
   });
 
+  it('notes a turn that ended on an API error', () => {
+    expect(deriveActivity([ev('UserPromptSubmit', 1), ev('PreToolUse', 2, { tool_name: 'Read' }), ev('StopFailure', 3)]).failedAt).toBe(3);
+    expect(deriveActivity([ev('StopFailure', 3), ev('Stop', 4)]).failedAt).toBeUndefined();
+    expect(deriveActivity([ev('StopFailure', 3), ev('UserPromptSubmit', 5)]).failedAt).toBeUndefined();
+  });
+
   it('sees a compaction until it ends', () => {
     expect(deriveActivity([ev('PreCompact', 5)]).compactingSince).toBe(5);
     expect(deriveActivity([ev('PreCompact', 5), ev('PostCompact', 8)]).compactingSince).toBeUndefined();

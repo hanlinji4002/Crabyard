@@ -399,7 +399,19 @@
       "xhigh": "Extra high",
       "max": "Max"
     },
-    "confirmInTerminal": "Confirm in the terminal: Enter to continue, Esc to cancel"
+    "confirmInTerminal": "Confirm in the terminal: Enter to continue, Esc to cancel",
+    "ultracode": "Ultracode",
+    "ultracodeOn": "Ultracode · on",
+    "ultracodeOnSuffix": " · on",
+    "ultracodeTitle": "Ultracode: xhigh effort plus dynamic multi-agent workflows, for this session only. Click to turn it on (sends /effort ultracode); click again to turn it off (sends /effort xhigh, which Claude Code also saves as the default effort for new sessions)",
+    "ultracodeEnabled": "Ultracode is on",
+    "ultracodeDisabled": "Ultracode is off — effort is back to extra high",
+    "ultracodeUnavailable": {
+      "needsWorkflows": "Can't turn on Ultracode: enable dynamic workflows in Claude Code's /config first",
+      "capped": "Can't turn on Ultracode: your settings or organization cap effort below xhigh",
+      "unsupported": "Can't turn on Ultracode: this model doesn't support xhigh — switch to one that does (e.g. Opus 5.5)",
+      "envOverride": "Ultracode can't take effect: CLAUDE_CODE_EFFORT_LEVEL overrides the effort — clear it first"
+    }
   },
   "usagePanel": {
     "toggle": "Show or hide usage totals",
@@ -412,7 +424,12 @@
       "umbrella": "Rainy day",
       "garden": "Watering",
       "park": "Spring park",
-      "beach": "At the beach"
+      "beach": "At the beach",
+      "luffy": "Luffy · Gum-Gum grab",
+      "naruto": "Naruto · Rasengan",
+      "akatsuki": "Akatsuki · Crow clone",
+      "potter": "Harry Potter · Levitation",
+      "quidditch": "Quidditch · Catch the Snitch"
     },
     "mode": {
       "animation": "Animation",
@@ -435,14 +452,14 @@
     "empty": "No skills found in ~/.claude/skills or the project's .claude/skills.",
     "user": "My skills · ~/.claude/skills",
     "project": "This project · .claude/skills",
-    "note": "Switching a skill off adds a skillOverrides entry to Claude Code's settings, so Claude stops using it — running conversations included.",
-    "writeFailed": "Couldn't write Claude Code's settings."
+    "note": "Switching a skill off adds a skillOverrides entry to Claude Code's settings and takes effect in running conversations too; plugins are switched with claude plugin enable/disable and take effect in new conversations.",
+    "writeFailed": "Couldn't write Claude Code's settings.",
+    "plugins": "Plugins · claude plugin",
+    "pluginsFailed": "Couldn't list plugins: {error}"
   },
   "clawd": {
     "title": "Clawd tub",
     "toggle": "Show or hide the Clawd tub",
-    "moveTop": "Move above the tabs",
-    "moveRight": "Move to the right column",
     "hide": "Hide the Clawd tub",
     "empty": "No conversations — Clawd is asleep",
     "more": "{count} more conversations",
@@ -461,7 +478,18 @@
       "conducting": "directing subagents",
       "wizard": "searching the web",
       "beacon": "calling tools",
-      "sweeping": "compacting context"
+      "sweeping": "compacting context",
+      "dizzy": "knocked out",
+      "wake": "waking up"
+    },
+    "knockedOut": "knocked out by an error — click it or return to the conversation to wake it",
+    "crashed": "quit unexpectedly — click to reopen the conversation",
+    "agents": "{count} subagents at work",
+    "menu": {
+      "open": "Open this conversation",
+      "close": "Close this conversation",
+      "reopen": "Reopen this conversation",
+      "dismiss": "Remove this crab"
     }
   },
   "liveUsage": {
@@ -469,8 +497,6 @@
     "toggle": "Show or hide current usage",
     "fiveHour": "5-hour limit",
     "weekly": "Weekly · all models",
-    "weeklyModel": "Weekly · {name}",
-    "weeklyModelUnknown": "Weekly · per model",
     "updated": "Updated {time}",
     "reset": "Reset",
     "empty": "Fills in once a Claude conversation runs in this app — the numbers come from Claude Code’s status line.",

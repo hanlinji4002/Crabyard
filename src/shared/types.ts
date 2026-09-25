@@ -312,8 +312,6 @@ export interface RateLimitWindowPayload {
 export interface RateLimitsPayload {
   five_hour?: RateLimitWindowPayload | null;
   seven_day?: RateLimitWindowPayload | null;
-  /** Per-model weekly windows (e.g. Fable); `utilization` is 0–100, `resets_at` ISO-8601. */
-  model_scoped?: Array<{ display_name?: string | null; utilization?: number | null; resets_at?: string | null }> | null;
 }
 
 export interface CostData {
@@ -534,6 +532,18 @@ export interface SkillInfo {
   enabled: boolean;
   /** The raw `skillOverrides` value, if any ("off", "name-only", …). */
   override: string | null;
+}
+
+/** A Claude Code plugin, as `claude plugin list --json` reports it. */
+export interface PluginInfo {
+  /** `name@marketplace`. */
+  id: string;
+  name: string;
+  marketplace: string;
+  version: string;
+  scope: string;
+  enabled: boolean;
+  description: string;
 }
 
 export interface ConversationChanges {

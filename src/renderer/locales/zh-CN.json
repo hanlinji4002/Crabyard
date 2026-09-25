@@ -399,7 +399,19 @@
       "xhigh": "超高",
       "max": "最大"
     },
-    "confirmInTerminal": "终端里要你确认：按回车继续，Esc 取消"
+    "confirmInTerminal": "终端里要你确认：按回车继续，Esc 取消",
+    "ultracode": "Ultracode",
+    "ultracodeOn": "Ultracode · 开",
+    "ultracodeOnSuffix": " · 开",
+    "ultracodeTitle": "Ultracode：xhigh 思考 + 动态多 agent 编排，只对这个会话有效。点一下开启（发送 /effort ultracode），再点关闭（发送 /effort xhigh，Claude Code 会把 xhigh 存成新会话的默认思考强度）",
+    "ultracodeEnabled": "已开启 Ultracode",
+    "ultracodeDisabled": "已关闭 Ultracode，思考强度回到超高",
+    "ultracodeUnavailable": {
+      "needsWorkflows": "开不了 Ultracode：先在 Claude Code 的 /config 里打开 Dynamic workflows",
+      "capped": "开不了 Ultracode：你的设置或组织把思考强度限制在 xhigh 以下",
+      "unsupported": "开不了 Ultracode：当前模型不支持 xhigh，先换一个支持的模型（如 Opus 5.5）",
+      "envOverride": "开不了 Ultracode：环境变量 CLAUDE_CODE_EFFORT_LEVEL 正在覆盖思考强度，清掉它才会生效"
+    }
   },
   "usagePanel": {
     "toggle": "显示或隐藏用量统计",
@@ -412,7 +424,12 @@
       "umbrella": "雨中撑伞",
       "garden": "浇花",
       "park": "春日公园",
-      "beach": "海边沙滩"
+      "beach": "海边沙滩",
+      "luffy": "路飞 · 橡胶手抢肉",
+      "naruto": "鸣人 · 螺旋丸",
+      "akatsuki": "晓组织 · 鸦分身",
+      "potter": "哈利波特 · 漂浮咒",
+      "quidditch": "魁地奇 · 抓飞贼"
     },
     "mode": {
       "animation": "动画模式",
@@ -435,14 +452,14 @@
     "empty": "~/.claude/skills 和项目的 .claude/skills 里没有找到 skill。",
     "user": "我的 skill · ~/.claude/skills",
     "project": "这个项目 · .claude/skills",
-    "note": "关掉的 skill 会写进 Claude Code 设置里的 skillOverrides，Claude 就不再用它，正在进行的对话也会生效。",
-    "writeFailed": "没能写入 Claude Code 的设置。"
+    "note": "关掉的 skill 会写进 Claude Code 设置里的 skillOverrides，正在进行的对话也会生效；插件用 claude plugin enable/disable 开关，新开的对话才生效。",
+    "writeFailed": "没能写入 Claude Code 的设置。",
+    "plugins": "插件 · claude plugin",
+    "pluginsFailed": "没能读取插件列表：{error}"
   },
   "clawd": {
     "title": "Clawd 浴缸",
     "toggle": "显示或隐藏 Clawd 浴缸",
-    "moveTop": "放到标签页上方",
-    "moveRight": "放到右边栏",
     "hide": "隐藏 Clawd 浴缸",
     "empty": "没有对话，Clawd 睡着了",
     "more": "还有 {count} 个对话",
@@ -461,7 +478,18 @@
       "conducting": "指挥子代理",
       "wizard": "查网页",
       "beacon": "调用工具",
-      "sweeping": "压缩上下文"
+      "sweeping": "压缩上下文",
+      "dizzy": "晕过去了",
+      "wake": "醒过来了"
+    },
+    "knockedOut": "出错了，晕过去了——点它或切回这个对话就会醒",
+    "crashed": "异常退出了——点一下重新打开这个对话",
+    "agents": "{count} 个子代理在干活",
+    "menu": {
+      "open": "打开这个对话",
+      "close": "关闭这个对话",
+      "reopen": "重新打开这个对话",
+      "dismiss": "移走这只螃蟹"
     }
   },
   "liveUsage": {
@@ -469,8 +497,6 @@
     "toggle": "显示或隐藏当前用量",
     "fiveHour": "5 小时限额",
     "weekly": "每周 · 全部模型",
-    "weeklyModel": "每周 · {name}",
-    "weeklyModelUnknown": "每周 · 单个模型",
     "updated": "更新于 {time}",
     "reset": "已重置",
     "empty": "在这个 app 里跑一个 Claude 对话后就会显示，数据来自 Claude Code 的状态栏。",

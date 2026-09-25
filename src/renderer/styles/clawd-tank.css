@@ -1,82 +1,32 @@
-/* The title-bar strip (components/titlebar.ts) and the Clawd tub
-   (components/clawd-tank.ts). The sprites are clawd-tank's SVGs: a
-   -15 -25 45 45 viewBox with Clawd's body at x 0–15, y 6–16. Each is drawn at
-   --s px per unit, centred on Clawd (x 7.5, 22.5 units from its left edge)
-   with its feet (y 16, 4 units above its bottom edge) on the tub floor, so the
-   thought bubbles, hats and Zzz above Clawd rise out of the tub. */
-
-body.mac-titlebar,
-body.clawd-top {
-  --titlebar-h: 40px;
-}
-
-#titlebar {
-  display: none;
-  height: var(--titlebar-h, 0px);
-  background: var(--bg-secondary);
-  -webkit-app-region: drag;
-  user-select: none;
-  overflow: hidden;
-}
-
-body.mac-titlebar #titlebar,
-body.clawd-top #titlebar {
-  display: flex;
-}
-
-#titlebar-side {
-  flex-shrink: 0;
-}
-
-#titlebar-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  padding-bottom: 4px;
-}
-
-#clawd-tub-slot {
-  display: flex;
-  align-items: flex-end;
-}
-
-/* In the title bar the pane is just the tub and, on hover, its two buttons. */
-#usage-clawd-pane.clawd-top {
-  display: flex;
-  align-items: flex-end;
-  gap: 4px;
-  height: 100%;
-  min-height: 0;
-  padding: 0;
-  overflow: visible;
-}
-
-#usage-clawd-pane[hidden] {
-  display: none;
-}
+/* The Clawd tub (components/clawd-tank.ts), a pane in the right column, set
+   like clawd-tank's display: a night sky with twinkling pixel stars over a
+   strip of grass. The sprites are clawd-tank's SVGs: a -15 -25 45 45 viewBox
+   with Clawd's body at x 0–15, y 6–16. Each is drawn at --s px per unit,
+   centred on Clawd (x 7.5, 22.5 units from its left edge) with its feet (y 16,
+   4 units above its bottom edge) on the grass (--floor above the bottom). */
 
 #usage-panel.multi #usage-clawd-pane {
   flex-shrink: 0;
 }
 
-#usage-clawd-pane:not(.clawd-top) {
+#usage-clawd-pane {
   container-type: inline-size;
 }
 
 .clawd-tub {
   --s: 2.4;
-  --floor: 20px;
+  --floor: 22px;
   position: relative;
   display: flex;
   align-items: stretch;
   justify-content: center;
-  height: 100px;
+  height: 118px;
   margin-top: 2px;
   padding: 0 6px;
-  border-radius: 10px;
-  background: var(--bg-primary);
-  box-shadow: inset 0 0 0 1px var(--border);
   overflow: hidden;
+  border-radius: 10px;
+  background: linear-gradient(to bottom, #090d1f 0%, #10142c 40%, #1b1834 72%, #231b3a 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
 }
 
 /* Four crabs need 26 units each plus the tub's padding; a narrower column shrinks them. */
@@ -92,18 +42,58 @@ body.clawd-top #titlebar {
   }
 }
 
-#usage-clawd-pane.clawd-top .clawd-tub {
-  --s: 1.5;
-  --floor: 3px;
-  height: 28px;
-  margin: 0;
-  border-radius: 8px;
-  overflow: visible;
-  -webkit-app-region: no-drag;
+/* Pixel stars: one 2px dot repeated by box-shadow, two layers twinkling out of step. */
+.clawd-sky {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 2px;
+  height: 2px;
+  background: transparent;
+  box-shadow:
+    18px 12px #ffffff, 64px 30px #8fb8ff, 102px 8px #ffe066, 150px 22px #ffffff,
+    196px 40px #7ff0d0, 238px 14px #ffb86b, 280px 34px #ffffff, 322px 10px #8fb8ff,
+    366px 26px #ffffff, 410px 16px #ffe066, 452px 38px #ffffff, 40px 52px #ffb86b,
+    128px 48px #ffffff, 262px 58px #8fb8ff, 344px 50px #ffffff, 430px 60px #7ff0d0;
+  opacity: 0.85;
+  animation: clawd-twinkle 3.2s ease-in-out infinite;
+  z-index: 0;
+}
+
+.clawd-sky-2 {
+  box-shadow:
+    36px 24px #ffffff, 84px 14px #ffffff, 122px 36px #8fb8ff, 172px 8px #ffffff,
+    214px 28px #ffe066, 258px 44px #ffffff, 300px 20px #ffb86b, 348px 38px #ffffff,
+    392px 6px #7ff0d0, 470px 22px #ffffff, 10px 40px #8fb8ff, 226px 60px #ffffff;
+  opacity: 0.5;
+  animation-duration: 4.4s;
+  animation-delay: -2s;
+}
+
+@keyframes clawd-twinkle {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* The grass strip the crabs stand on, with lighter tufts along its top. */
+.clawd-tub::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--floor);
+  z-index: 0;
+  background:
+    repeating-linear-gradient(90deg, #4f8f44 0 3px, transparent 3px 17px) 5px 0 / 100% 2px no-repeat,
+    linear-gradient(#2d5a2a, #2d5a2a) 0 0 / 100% 2px no-repeat,
+    repeating-linear-gradient(90deg, #1e3b1d 0 6px, #1b361a 6px 12px);
 }
 
 .clawd-crab {
   position: relative;
+  z-index: 1;
   flex-shrink: 0;
   width: calc(var(--s) * 26px);
   padding: 0;
@@ -111,7 +101,6 @@ body.clawd-top #titlebar {
   background: none;
   color: inherit;
   cursor: pointer;
-  -webkit-app-region: no-drag;
 }
 
 .clawd-crab:focus-visible {
@@ -145,14 +134,10 @@ body.clawd-top #titlebar {
   position: absolute;
   left: calc(50% - 8px);
   width: 16px;
-  bottom: calc(var(--floor) - 3px);
+  bottom: calc(var(--floor) - 4px);
   height: 2px;
   border-radius: 1px;
   background: var(--accent);
-}
-
-#usage-clawd-pane.clawd-top .clawd-crab.is-active::after {
-  bottom: 0;
 }
 
 .clawd-crab.arriving .clawd-stage {
@@ -194,75 +179,95 @@ body.clawd-top #titlebar {
   overflow: hidden;
   font-size: 10.5px;
   line-height: 14px;
-  color: var(--text-muted);
+  color: #d8d4c8;
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
 }
 
 .clawd-crab.is-active .clawd-name {
-  color: var(--text-primary);
+  color: #ffffff;
 }
 
-#usage-clawd-pane.clawd-top .clawd-name {
+/* Knocked out: a red "!" pops up over the crab. */
+.clawd-alert {
+  position: absolute;
+  top: 6px;
+  left: calc(50% - 8px);
   display: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  background: #ffffff;
+  box-shadow: 0 0 0 2px #dc2828;
+  color: #dc2828;
+  font: 900 12px/16px var(--font-mono);
+  text-align: center;
+}
+
+.clawd-crab.knocked-out .clawd-alert {
+  display: block;
+  animation: clawd-pop 0.45s cubic-bezier(0.3, 1.6, 0.5, 1), clawd-bob 1.6s ease-in-out 0.45s infinite;
+}
+
+@keyframes clawd-pop {
+  from {
+    transform: scale(0);
+  }
+}
+
+@keyframes clawd-bob {
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+/* Subagents at work: a mini crab ×N at the crab's top-left. */
+.clawd-agents {
+  position: absolute;
+  top: 4px;
+  left: 0;
+  display: none;
+  align-items: center;
+  gap: 1px;
+  padding: 1px 4px 1px 2px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #ffe9b0;
+  font: 700 10px/14px var(--font-mono);
+}
+
+.clawd-crab.has-agents .clawd-agents {
+  display: flex;
+}
+
+.clawd-agents img,
+.clawd-more img {
+  width: 14px;
+  height: 14px;
 }
 
 .clawd-more {
-  align-self: center;
-  margin-left: 2px;
-  padding: 1px 6px;
-  border-radius: 8px;
-  font-size: 11px;
-  color: var(--text-muted);
-  background: var(--bg-tertiary);
-}
-
-#usage-clawd-pane:not(.clawd-top) .clawd-more {
-  align-self: flex-end;
-  margin-bottom: 26px;
-}
-
-.clawd-head-inline {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 2px;
-  height: 28px;
-  opacity: 0;
-  transition: opacity 0.15s;
-  -webkit-app-region: no-drag;
-}
-
-#usage-clawd-pane.clawd-top:hover .clawd-head-inline,
-.clawd-head-inline:focus-within {
-  opacity: 1;
-}
-
-.clawd-head-inline .icon-btn {
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-sm, 6px);
-  color: var(--text-muted);
-  background: none;
-}
-
-.clawd-head-inline .icon-btn:hover {
-  color: var(--text-primary);
-  background: var(--bg-hover);
-}
-
-.clawd-head .clawd-move {
-  color: var(--text-muted);
+  align-self: flex-end;
+  margin: 0 0 26px 2px;
+  padding: 1px 6px 1px 3px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #d8d4c8;
+  font-size: 11px;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .clawd-crab.arriving .clawd-stage,
-  .clawd-crab.leaving {
+  .clawd-crab.leaving,
+  .clawd-crab.knocked-out .clawd-alert,
+  .clawd-sky {
     animation: none;
   }
 }

@@ -1,4 +1,4 @@
-/* Model / thinking / mode pills on a Claude session's status bar. */
+/* Model / thinking / mode pills and the Ultracode switch on a Claude session's status bar. */
 
 .session-controls {
   display: flex;
@@ -20,6 +20,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  min-width: 0;
   max-width: 180px;
   height: 22px;
   padding: 0 8px;
@@ -69,6 +70,81 @@
 .session-controls[data-mode="plan"] .sc-mode .sc-icon { color: #5fafaf; }
 .session-controls[data-mode="auto"] .sc-mode .sc-icon,
 .session-controls[data-mode="bypassPermissions"] .sc-mode .sc-icon { color: var(--color-warning); }
+
+/* Ultracode switch: a muted spark while off. While on it takes Claude Code's
+   ultracode look: the name in its 7-colour rainbow with a brighter shimmer
+   sweeping across one letter at a time (the timing of pi's rainbow-editor
+   example, github.com/earendil-works/pi, MIT), inside a flowing rainbow border
+   (the layered-background border of Magic UI's Rainbow Button,
+   github.com/magicuidesign/magicui, MIT). It never shrinks — the other pills'
+   labels give way first. */
+.sc-ultracode {
+  flex-shrink: 0;
+}
+
+.sc-ultracode .sc-icon {
+  color: var(--text-muted);
+}
+
+.sc-pill.sc-ultracode.on {
+  color: var(--text-primary);
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(rgba(135, 0, 255, 0.12), rgba(135, 0, 255, 0.12)) padding-box,
+    linear-gradient(var(--bg-secondary), var(--bg-secondary)) padding-box,
+    linear-gradient(90deg, rgb(235, 95, 87), rgb(245, 139, 87), rgb(250, 195, 95), rgb(145, 200, 130), rgb(130, 170, 220), rgb(155, 130, 200), rgb(200, 130, 180), rgb(235, 95, 87)) border-box;
+  background-size: 100% 100%, 100% 100%, 200% 100%;
+  box-shadow: 0 0 10px rgba(135, 0, 255, 0.28);
+  animation: sc-uc-border 3s linear infinite;
+}
+
+.sc-pill.sc-ultracode.on .sc-icon {
+  color: rgb(175, 110, 255);
+  animation: sc-ultracode-glow 2.4s ease-in-out infinite;
+}
+
+.sc-uc-letter {
+  color: var(--c);
+  animation: sc-uc-shimmer 1.26s linear infinite;
+  animation-delay: calc(var(--i) * 70ms);
+}
+
+.sc-uc-state {
+  color: var(--text-secondary);
+}
+
+/* The border's rainbow flows sideways: its layer is twice as wide as the pill. */
+@keyframes sc-uc-border {
+  to {
+    background-position: 0 0, 0 0, 200% 0;
+  }
+}
+
+/* One letter at a time lights up in its shimmer colour, then the word rests. */
+@keyframes sc-uc-shimmer {
+  0%, 5% {
+    color: var(--s);
+    text-shadow: 0 0 6px var(--s);
+  }
+  11%, 100% {
+    color: var(--c);
+    text-shadow: none;
+  }
+}
+
+@keyframes sc-ultracode-glow {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sc-pill.sc-ultracode.on,
+  .sc-pill.sc-ultracode.on .sc-icon,
+  .sc-uc-letter {
+    animation: none;
+  }
+}
 
 .session-controls.busy .sc-pill {
   opacity: 0.55;

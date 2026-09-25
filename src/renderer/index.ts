@@ -2,7 +2,7 @@ import { appState } from './state.js';
 import { updateSessionControlsStatus } from './components/session-controls.js';
 import { initSidebar, promptNewProject } from './components/sidebar.js';
 import { initUsagePanel } from './components/usage-panel.js';
-import { initTitlebar } from './components/titlebar.js';
+import { noteCrashedConversation } from './components/clawd-tank.js';
 import { initSidebarShowcase } from './components/clawd-showcase.js';
 import { updatePlanUsage } from './plan-usage.js';
 import { initConversationChanges, scheduleChangesRefresh } from './conversation-changes-store.js';
@@ -158,7 +158,7 @@ async function main(): Promise<void> {
     }
   });
 
-  window.vibeyard.pty.onExit((sessionId, exitCode) => {
+  window.vibeyard.pty.onExit((sessionId, exitCode, signal) => {
     logDebugEvent('ptyExit', sessionId, { exitCode });
     if (isShellSessionId(sessionId)) {
       handleShellPtyExit(sessionId, exitCode);
@@ -170,6 +170,9 @@ async function main(): Promise<void> {
       // Auto-close the session when CLI exits (skip during app quit to preserve session state)
       const project = appState.projects.find(p => p.sessions.some(s => s.id === sessionId));
       if (project) {
+        // A CLI that quits abnormally leaves its knocked-out crab in the Clawd tub.
+        const session = project.sessions.find(s => s.id === sessionId);
+        if (session && !session.type && (exitCode !== 0 || signal)) noteCrashedConversation(project.id, session);
         destroyTerminal(sessionId);
         appState.removeSession(project.id, sessionId);
       }
@@ -183,7 +186,6 @@ async function main(): Promise<void> {
   initSessionUnread();
   initSidebar();
   initConversationChanges();
-  initTitlebar();
   initSidebarShowcase();
   initUsagePanel();
   initTabBar();

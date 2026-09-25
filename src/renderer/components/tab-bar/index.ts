@@ -9,7 +9,7 @@ import { hideTabContextMenu } from './menu.js';
 import { gitStatusEl } from './dom.js';
 import { render, updateTabStatus } from './tab-list.js';
 import { clearTabScrollState } from './tab-scroll.js';
-import { renderGitStatus, showBranchContextMenu } from './git-status-bar.js';
+import { initGitHoverCard, renderGitStatus, showBranchContextMenu } from './git-status-bar.js';
 import { promptNewSession, quickNewSession } from './session-menu.js';
 import { t } from '../../i18n.js';
 
@@ -46,6 +46,7 @@ export function initTabBar(): void {
     appState.on(event, syncSwarmButton);
   }
   gitStatusEl.addEventListener('click', (e) => showBranchContextMenu(e));
+  initGitHoverCard();
 
   // Icons only distinguish providers when multiple are installed
   loadProviderAvailability().then(() => {

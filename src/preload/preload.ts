@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron';
-import type { CostData, ProviderId, CliProviderMeta, ToolFailureData, SettingsWarningData, SettingsValidationResult, StatusLineConflictData, InspectorEvent, ProviderConfig, ReadFileResult, FileStatResult, FsChange, DeepSearchResult, ClaudeConversationList, ClaudeUsageReport, ConversationChanges, ClipboardSource, SkillInfo, SkillScope } from '../shared/types';
+import type { CostData, ProviderId, CliProviderMeta, ToolFailureData, SettingsWarningData, SettingsValidationResult, StatusLineConflictData, InspectorEvent, ProviderConfig, ReadFileResult, FileStatResult, FsChange, DeepSearchResult, ClaudeConversationList, ClaudeUsageReport, ConversationChanges, ClipboardSource, SkillInfo, SkillScope, PluginInfo } from '../shared/types';
 import { ZOOM_MIN, ZOOM_MAX } from '../shared/types';
 
 export type { CostData } from '../shared/types';
@@ -109,6 +109,12 @@ export interface VibeyardApi {
     list(projectPath?: string): Promise<SkillInfo[]>;
     /** Turn a skill on or off through `skillOverrides` in Claude Code's settings. */
     setEnabled(name: string, scope: SkillScope, projectPath: string | undefined, enabled: boolean): Promise<{ ok: boolean; error?: string }>;
+  };
+  plugins: {
+    /** Installed Claude Code plugins (`claude plugin list --json`). */
+    list(): Promise<PluginInfo[]>;
+    /** `claude plugin enable|disable <id>`. */
+    setEnabled(id: string, enabled: boolean): Promise<{ ok: boolean; error?: string }>;
   };
   claudeHistory: {
     /** Top-level Claude transcripts across ~/.claude and profile config dirs, newest first. */
@@ -280,6 +286,10 @@ const api: VibeyardApi = {
   skills: {
     list: (projectPath) => ipcRenderer.invoke('skills:list', projectPath),
     setEnabled: (name, scope, projectPath, enabled) => ipcRenderer.invoke('skills:setEnabled', name, scope, projectPath, enabled),
+  },
+  plugins: {
+    list: () => ipcRenderer.invoke('plugins:list'),
+    setEnabled: (id, enabled) => ipcRenderer.invoke('plugins:setEnabled', id, enabled),
   },
   claudeHistory: {
     list: (force) => ipcRenderer.invoke('claudeHistory:list', force),

@@ -80,7 +80,7 @@ describe('spawnPty', () => {
     if (isWin) {
       expect(mockSpawn).toHaveBeenCalledWith(
         'cmd.exe',
-        ['/c', 'claude'],
+        ['/c', 'claude', '--permission-mode', 'bypassPermissions', '--effort', 'xhigh'],
         expect.objectContaining({
           cwd: '/project',
           name: 'xterm-256color',
@@ -91,7 +91,7 @@ describe('spawnPty', () => {
     } else {
       expect(mockSpawn).toHaveBeenCalledWith(
         'claude',
-        [],
+        ['--permission-mode', 'bypassPermissions', '--effort', 'xhigh'],
         expect.objectContaining({
           cwd: '/project',
           name: 'xterm-256color',
@@ -111,13 +111,13 @@ describe('spawnPty', () => {
     if (isWin) {
       expect(mockSpawn).toHaveBeenCalledWith(
         'cmd.exe',
-        ['/c', 'claude', '-r', 'claude-123'],
+        ['/c', 'claude', '-r', 'claude-123', '--permission-mode', 'bypassPermissions', '--effort', 'xhigh'],
         expect.any(Object),
       );
     } else {
       expect(mockSpawn).toHaveBeenCalledWith(
         'claude',
-        ['-r', 'claude-123'],
+        ['-r', 'claude-123', '--permission-mode', 'bypassPermissions', '--effort', 'xhigh'],
         expect.any(Object),
       );
     }
@@ -132,13 +132,13 @@ describe('spawnPty', () => {
     if (isWin) {
       expect(mockSpawn).toHaveBeenCalledWith(
         'cmd.exe',
-        ['/c', 'claude', '--session-id', 'claude-123'],
+        ['/c', 'claude', '--session-id', 'claude-123', '--permission-mode', 'bypassPermissions', '--effort', 'xhigh'],
         expect.any(Object),
       );
     } else {
       expect(mockSpawn).toHaveBeenCalledWith(
         'claude',
-        ['--session-id', 'claude-123'],
+        ['--session-id', 'claude-123', '--permission-mode', 'bypassPermissions', '--effort', 'xhigh'],
         expect.any(Object),
       );
     }
@@ -154,13 +154,13 @@ describe('spawnPty', () => {
     if (isWin) {
       expect(mockSpawn).toHaveBeenCalledWith(
         'cmd.exe',
-        ['/c', 'claude', '--verbose', '--debug'],
+        ['/c', 'claude', '--verbose', '--debug', '--permission-mode', 'bypassPermissions', '--effort', 'xhigh'],
         expect.any(Object),
       );
     } else {
       expect(mockSpawn).toHaveBeenCalledWith(
         'claude',
-        ['--verbose', '--debug'],
+        ['--verbose', '--debug', '--permission-mode', 'bypassPermissions', '--effort', 'xhigh'],
         expect.any(Object),
       );
     }
@@ -210,13 +210,13 @@ describe('spawnPty', () => {
       // On Windows, .cmd files are wrapped with cmd.exe /c
       expect(mockSpawn).toHaveBeenCalledWith(
         'cmd.exe',
-        ['/c', expectedPath],
+        ['/c', expectedPath, '--permission-mode', 'bypassPermissions', '--effort', 'xhigh'],
         expect.any(Object),
       );
     } else {
       expect(mockSpawn).toHaveBeenCalledWith(
         expectedPath,
-        [],
+        ['--permission-mode', 'bypassPermissions', '--effort', 'xhigh'],
         expect.any(Object),
       );
     }

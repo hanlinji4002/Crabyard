@@ -86,13 +86,13 @@ export const DOCK_RING_SLOT = 92;
 export const DOCK_RING_GAP = 8;
 /** The dock's horizontal padding (14px each side). */
 export const DOCK_PADDING = 28;
-/** Widest the dock gets (all three rings) and narrowest (just the 5-hour ring). */
-export const DOCK_MAX_WIDTH = DOCK_PADDING + 3 * DOCK_RING_SLOT + 2 * DOCK_RING_GAP;
+/** Widest the dock gets (both rings) and narrowest (just the 5-hour ring). */
+export const DOCK_MAX_WIDTH = DOCK_PADDING + 2 * DOCK_RING_SLOT + DOCK_RING_GAP;
 export const DOCK_MIN_WIDTH = DOCK_PADDING + DOCK_RING_SLOT;
 
-/** How many rings fit fully in a dock this wide — 3, 2 (5-hour and weekly) or 1 (5-hour). */
-export function ringsThatFit(width: number): 1 | 2 | 3 {
+/** How many rings fit fully in a dock this wide — 2 (5-hour and weekly) or 1 (5-hour). */
+export function ringsThatFit(width: number): 1 | 2 {
   const n = Math.floor((width - DOCK_PADDING + DOCK_RING_GAP) / (DOCK_RING_SLOT + DOCK_RING_GAP));
-  return (n >= 3 ? 3 : n <= 1 ? 1 : 2);
+  return n >= 2 ? 2 : 1;
 }
 

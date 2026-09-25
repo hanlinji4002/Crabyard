@@ -1,5 +1,5 @@
 import { appState, MAX_PROJECT_NAME_LENGTH, ProjectRecord } from '../state.js';
-import { showModal, setModalError, closeModal, showConfirmDialog, FieldDef } from './modal.js';
+import { showModal, closeModal, showConfirmDialog } from './modal.js';
 import { showPreferencesModal } from './preferences-modal.js';
 import { onChange as onUnreadChange } from '../session-unread.js';
 import { onChange as onActivityChange } from '../session-activity.js';
@@ -344,142 +344,20 @@ export function toggleGitPanel(): void {
   setProjectPanel(project.id, current === 'git' ? null : 'git');
 }
 
-export function promptNewProject(): void {
-  const claudeProfiles = appState.profiles.filter((p) => p.providerId === 'claude');
-  const fields: FieldDef[] = [
-    { label: t('sidebar.newProject.nameLabel'), id: 'project-name', placeholder: t('sidebar.newProject.namePlaceholder') },
-    {
-      label: t('sidebar.newProject.pathLabel'), id: 'project-path', placeholder: t('sidebar.newProject.pathPlaceholder'),
-      buttonLabel: t('sidebar.newProject.browseButton'),
-      onButtonClick: async (input) => {
-        const dir = await window.vibeyard.fs.browseDirectory();
-        if (!dir) return;
-        input.value = dir;
-        autoFillName(dir);
-      },
-    },
-  ];
-  if (claudeProfiles.length > 0) {
-    fields.push({
-      label: t('sidebar.newProject.defaultProfileLabel'),
-      id: 'profile',
-      type: 'select',
-      defaultValue: appState.preferences.defaultProfileId ?? '',
-      options: [
-        { value: '', label: t('sidebar.defaultProfileOption') },
-        ...claudeProfiles.map((p) => ({ value: p.id, label: p.name })),
-      ],
-    });
+/**
+ * Add a project: pick its folder and it's added straight away, named after the
+ * folder (rename it later from the project card's context menu). A folder that
+ * is already a project just switches to it.
+ */
+export async function promptNewProject(): Promise<void> {
+  const dir = await window.vibeyard.fs.browseDirectory();
+  if (!dir) return;
+  const existing = appState.projects.find((p) => p.path === dir);
+  if (existing) {
+    appState.setActiveProject(existing.id);
+    return;
   }
-  showModal(t('sidebar.newProject.title'), fields, async (values) => {
-    const name = values['project-name']?.trim();
-    const rawPath = values['project-path']?.trim();
-    if (!name || !rawPath) return;
-
-    const projectPath = await window.vibeyard.fs.expandPath(rawPath);
-    const isDir = await window.vibeyard.fs.isDirectory(projectPath);
-    if (!isDir) {
-      setModalError('project-path', t('sidebar.newProject.directoryNotExist'));
-      return;
-    }
-
-    closeModal();
-    appState.addProject(name, projectPath, values['profile'] || undefined);
-  });
-
-  const nameInput = document.getElementById('modal-project-name') as HTMLInputElement | null;
-  let nameManuallyEdited = false;
-  nameInput?.addEventListener('input', () => { nameManuallyEdited = true; });
-
-  const autoFillName = (path: string) => {
-    if (nameInput && !nameManuallyEdited) {
-      nameInput.value = deriveProjectName(path);
-    }
-  };
-
-  // Attach path autocomplete to the rendered input
-  const pathInput = document.getElementById('modal-project-path') as HTMLInputElement | null;
-  if (pathInput) {
-    const fieldRow = pathInput.parentElement!;
-    fieldRow.style.position = 'relative';
-    fieldRow.style.flexWrap = 'wrap';
-
-    const dropdown = document.createElement('div');
-    dropdown.className = 'path-autocomplete-dropdown';
-    fieldRow.appendChild(dropdown);
-
-    let activeIndex = -1;
-
-    const hideDropdown = () => {
-      dropdown.innerHTML = '';
-      dropdown.classList.remove('visible');
-      activeIndex = -1;
-    };
-
-    const showSuggestions = (dirs: string[], dirPart: string) => {
-      dropdown.innerHTML = '';
-      activeIndex = -1;
-      if (dirs.length === 0) { hideDropdown(); return; }
-      for (const dir of dirs) {
-        const item = document.createElement('div');
-        item.className = 'path-autocomplete-item';
-        item.textContent = dirPart + basename(dir);
-        item.addEventListener('mousedown', (e) => {
-          e.preventDefault();
-          pathInput.value = item.textContent!;
-          hideDropdown();
-          autoFillName(pathInput.value);
-        });
-        dropdown.appendChild(item);
-      }
-      dropdown.classList.add('visible');
-    };
-
-    pathInput.addEventListener('input', async () => {
-      const value = pathInput.value;
-      autoFillName(value);
-      const lastSlash = lastSeparatorIndex(value);
-      if (lastSlash === -1) { hideDropdown(); return; }
-
-      const dirPart = value.substring(0, lastSlash + 1);
-      const namePart = value.substring(lastSlash + 1).toLowerCase();
-
-      const dirs = await window.vibeyard.fs.listDirs(dirPart, namePart || undefined);
-      showSuggestions(dirs, dirPart);
-    });
-
-    pathInput.addEventListener('keydown', (e) => {
-      const items = dropdown.querySelectorAll<HTMLElement>('.path-autocomplete-item');
-      if (!items.length) return;
-
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        items[activeIndex]?.classList.remove('active');
-        activeIndex = Math.min(activeIndex + 1, items.length - 1);
-        items[activeIndex].classList.add('active');
-        items[activeIndex].scrollIntoView({ block: 'nearest' });
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        items[activeIndex]?.classList.remove('active');
-        activeIndex = Math.max(activeIndex - 1, 0);
-        items[activeIndex].classList.add('active');
-        items[activeIndex].scrollIntoView({ block: 'nearest' });
-      } else if ((e.key === 'Enter' || e.key === 'Tab') && activeIndex >= 0) {
-        e.preventDefault();
-        e.stopPropagation();
-        pathInput.value = items[activeIndex].textContent!;
-        hideDropdown();
-        autoFillName(pathInput.value);
-      } else if (e.key === 'Escape') {
-        hideDropdown();
-      }
-    });
-
-    pathInput.addEventListener('blur', () => {
-      setTimeout(hideDropdown, 100);
-      autoFillName(pathInput.value);
-    });
-  }
+  appState.addProject(deriveProjectName(dir), dir, appState.preferences.defaultProfileId || undefined);
 }
 
 function initResizeHandle(): void {

@@ -167,14 +167,14 @@
 .clawd-player-dots {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   margin-left: auto;
   flex-shrink: 0;
 }
 
 .clawd-player-dot {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   padding: 0;
   border: 0;
   border-radius: 4px;
@@ -184,7 +184,7 @@
 }
 
 .clawd-player-dot.active {
-  width: 16px;
+  width: 14px;
   background: var(--accent);
 }
 
@@ -339,4 +339,10 @@
   .skill-knob {
     transition: none;
   }
+}
+
+/* A switch whose change is still being written. */
+.skill-switch.busy {
+  opacity: 0.6;
+  cursor: progress;
 }

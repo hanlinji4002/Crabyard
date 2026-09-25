@@ -491,6 +491,16 @@ export interface ClaudeConversation {
   model?: string;
 }
 
+/** A folder in the sidebar's 文件 view: its previewable files and the subfolders that hold some. */
+export interface PreviewTreeNode {
+  name: string;
+  path: string;
+  dirs: PreviewTreeNode[];
+  files: Array<{ name: string; path: string; mtimeMs: number }>;
+  /** The walk stopped early (too deep or too many entries), so some files may be missing. */
+  truncated?: boolean;
+}
+
 export interface ClaudeConversationList {
   conversations: ClaudeConversation[];
   scannedAt: number;

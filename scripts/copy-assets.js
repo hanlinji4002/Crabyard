@@ -58,4 +58,15 @@ copyDir(
   path.join(dist, 'assets', 'clawd')
 );
 
+// KaTeX typesets the formulas in Markdown previews and the conversation view;
+// its stylesheet loads the fonts from ./fonts next to it.
+copyFile(
+  path.join(root, 'node_modules', 'katex', 'dist', 'katex.min.css'),
+  path.join(dist, 'vendor', 'katex', 'katex.min.css')
+);
+copyDir(
+  path.join(root, 'node_modules', 'katex', 'dist', 'fonts'),
+  path.join(dist, 'vendor', 'katex', 'fonts')
+);
+
 console.log('Assets copied.');

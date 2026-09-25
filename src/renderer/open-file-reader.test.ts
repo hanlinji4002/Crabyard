@@ -28,13 +28,13 @@ beforeEach(() => {
 describe('openFileReaderChecked', () => {
   it('opens a tab for an existing file, forwarding the line number', async () => {
     await openFileReaderChecked('p1', 'src/foo.ts', 42);
-    expect(addFileReaderSession).toHaveBeenCalledWith('p1', '/repo/src/foo.ts', 42);
+    expect(addFileReaderSession).toHaveBeenCalledWith('p1', '/repo/src/foo.ts', 42, undefined);
   });
 
   it('resolves relative paths against the project path and leaves absolute ones alone', async () => {
     await openFileReaderChecked('p1', '/elsewhere/foo.ts');
     expect(exists).toHaveBeenCalledWith('/elsewhere/foo.ts');
-    expect(addFileReaderSession).toHaveBeenCalledWith('p1', '/elsewhere/foo.ts', undefined);
+    expect(addFileReaderSession).toHaveBeenCalledWith('p1', '/elsewhere/foo.ts', undefined, undefined);
   });
 
   it('opens no tab when the file does not exist', async () => {

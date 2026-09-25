@@ -1,4 +1,3 @@
-import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { appState } from '../state.js';
 import { closeSessionIfFileMissing } from '../session-close.js';
@@ -9,6 +8,9 @@ import { estimateTokens, TOKEN_COUNT_MAX_CHARS } from '../../shared/token-estima
 import { resolveMarkdownLink } from '../markdown-link.js';
 import { openFileReaderChecked } from '../open-file-reader.js';
 import { slugifyHeading } from '../../shared/slug.js';
+import { renderMarkdownWithMath } from '../markdown-math.js';
+import { parseTranscript, turnHtml, type TranscriptTurn } from '../transcript-view.js';
+import { t } from '../i18n.js';
 
 interface FileReaderInstance {
   element: HTMLElement;
@@ -17,11 +19,21 @@ interface FileReaderInstance {
   loaded: boolean;
   targetLine?: number;
   viewMode: 'raw' | 'rendered';
-  kind: 'text' | 'image';
+  /** 'transcript' is a Claude Code conversation shown as the typeset conversation view. */
+  kind: 'text' | 'image' | 'pdf' | 'transcript';
   unsupported: boolean;
   rawContent?: string;
   imageDataUrl?: string;
+  turns?: TranscriptTurn[];
+  /** The conversation view shows only its latest turns until asked for the rest. */
+  showAllTurns?: boolean;
+  reloadTimer?: ReturnType<typeof setTimeout> | null;
 }
+
+/** Turns the conversation view shows before "show earlier". */
+const RECENT_TURNS = 60;
+/** A conversation being written to changes constantly; re-read it at most this often. */
+const TRANSCRIPT_RELOAD_MS = 600;
 
 function isMarkdownFile(filePath: string): boolean {
   return /\.(md|markdown|mdown|mkd|mdx)$/i.test(filePath);
@@ -29,6 +41,19 @@ function isMarkdownFile(filePath: string): boolean {
 
 function isImageFile(filePath: string): boolean {
   return /\.(png|jpe?g|gif|webp|bmp|ico|svg)$/i.test(filePath);
+}
+
+function isPdfFile(filePath: string): boolean {
+  return /\.pdf$/i.test(filePath);
+}
+
+/** A Claude Code transcript: `<config dir>/projects/<folder>/<session id>.jsonl`. */
+export function isTranscriptFile(filePath: string): boolean {
+  return /[\\/]projects[\\/][^\\/]+[\\/][^\\/]+\.jsonl$/i.test(filePath);
+}
+
+function fileUrl(filePath: string): string {
+  return `file://${filePath.split('/').map(encodeURIComponent).join('/')}`;
 }
 
 const instances = new Map<string, FileReaderInstance>();
@@ -110,10 +135,61 @@ function handleMarkdownClick(wrapper: HTMLElement, baseDir: string | undefined, 
 export function renderMarkdownContent(content: string, baseDir?: string): HTMLElement {
   const wrapper = document.createElement('div');
   wrapper.className = 'file-reader-markdown';
-  const rawHtml = marked.parse(content, { async: false }) as string;
-  wrapper.innerHTML = DOMPurify.sanitize(rawHtml);
+  wrapper.innerHTML = DOMPurify.sanitize(renderMarkdownWithMath(content));
   wrapper.addEventListener('click', (event) => handleMarkdownClick(wrapper, baseDir, event));
+  if (baseDir) void inlineLocalImages(wrapper, baseDir);
   return wrapper;
+}
+
+/**
+ * A relative image path would resolve against the app's own page, so local
+ * images are read from the Markdown file's folder and shown as data URLs.
+ */
+async function inlineLocalImages(wrapper: HTMLElement, baseDir: string): Promise<void> {
+  for (const img of wrapper.querySelectorAll('img')) {
+    const src = img.getAttribute('src') ?? '';
+    if (!src || /^(https?:|data:|blob:)/i.test(src)) continue;
+    let local = src.replace(/^file:\/\//i, '');
+    try {
+      local = decodeURI(local);
+    } catch {
+      // keep it as written
+    }
+    const full = isAbsolutePath(local) ? local : `${baseDir}/${local.replace(/^\.\//, '')}`;
+    img.removeAttribute('src');
+    const result = await window.vibeyard.fs.readImage(full).catch(() => null);
+    if (result) img.src = result.dataUrl;
+  }
+}
+
+/** The conversation view: its latest turns (or all of them), keeping the reader's place. */
+function renderTranscript(instance: FileReaderInstance, body: Element): void {
+  const turns = instance.turns ?? [];
+  const el = body as HTMLElement;
+  const firstRender = !body.querySelector('.tv-list');
+  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  const prevTop = el.scrollTop;
+  const hidden = instance.showAllTurns ? 0 : Math.max(0, turns.length - RECENT_TURNS);
+  const labels = { user: t('preview.you'), assistant: 'Claude' };
+  const list = document.createElement('div');
+  list.className = 'tv-list';
+  if (hidden > 0) {
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'tv-earlier';
+    more.textContent = t('preview.showEarlier', { count: hidden });
+    more.addEventListener('click', () => {
+      instance.showAllTurns = true;
+      renderTranscript(instance, body);
+    });
+    list.appendChild(more);
+  }
+  const html = turns.slice(hidden).map((turn) => turnHtml(turn, labels)).join('');
+  list.insertAdjacentHTML('beforeend', html || `<div class="tv-empty">${t('preview.emptyConversation')}</div>`);
+  list.addEventListener('click', (event) => handleMarkdownClick(list, appState.activeProject?.path, event));
+  body.replaceChildren(list);
+  if (firstRender || atBottom) el.scrollTop = el.scrollHeight;
+  else el.scrollTop = prevTop;
 }
 
 function renderImageContent(dataUrl: string, filePath: string): HTMLElement {
@@ -133,7 +209,19 @@ function renderBody(instance: FileReaderInstance): void {
   if (sel && sel.rangeCount > 0 && !sel.isCollapsed && body.contains(sel.anchorNode)) {
     return;
   }
+  if (instance.kind === 'transcript') {
+    renderTranscript(instance, body);
+    return;
+  }
   body.innerHTML = '';
+  if (instance.kind === 'pdf') {
+    // Chromium's own PDF viewer: pages, zoom, search and print come with it.
+    const frame = document.createElement('iframe');
+    frame.className = 'file-reader-pdf';
+    frame.src = fileUrl(resolveFilePath(instance));
+    body.appendChild(frame);
+    return;
+  }
   if (instance.kind === 'image') {
     if (instance.imageDataUrl) {
       body.appendChild(renderImageContent(instance.imageDataUrl, instance.filePath));
@@ -166,11 +254,28 @@ async function loadFile(instance: FileReaderInstance, sessionId: string): Promis
   instance.unsupported = false;
   hideTokenBadge(instance);
   const body = instance.element.querySelector('.file-reader-body')!;
-  showFileReaderMessage(body, 'Loading...');
+  if (!(instance.kind === 'transcript' && instance.turns)) showFileReaderMessage(body, 'Loading...');
 
   try {
     const fullPath = resolveFilePath(instance);
     if (await closeSessionIfFileMissing(sessionId, fullPath)) return;
+    if (instance.kind === 'pdf') {
+      renderBody(instance);
+      instance.loaded = true;
+      return;
+    }
+    if (instance.kind === 'transcript') {
+      const result = await window.vibeyard.fs.readFile(fullPath);
+      if (!result.ok) {
+        showFileReaderMessage(body, t('preview.loadFailed'));
+        instance.loaded = true;
+        return;
+      }
+      instance.turns = parseTranscript(result.content);
+      renderBody(instance);
+      instance.loaded = true;
+      return;
+    }
     if (instance.kind === 'image') {
       const result = await window.vibeyard.fs.readImage(fullPath);
       if (!result) {
@@ -234,11 +339,20 @@ function ensureFileChangedListener(): void {
       for (const [sessionId, instance] of instances) {
         if (instance.resolvedPath && samePath(instance.resolvedPath, change.path) && instance.loaded) {
           // reloadFileReader -> loadFile -> closeSessionIfFileMissing handles deletes.
-          reloadFileReader(sessionId);
+          if (instance.kind === 'transcript') scheduleTranscriptReload(sessionId, instance);
+          else reloadFileReader(sessionId);
         }
       }
     }
   });
+}
+
+function scheduleTranscriptReload(sessionId: string, instance: FileReaderInstance): void {
+  if (instance.reloadTimer) return;
+  instance.reloadTimer = setTimeout(() => {
+    instance.reloadTimer = null;
+    reloadFileReader(sessionId);
+  }, TRANSCRIPT_RELOAD_MS);
 }
 
 export function reloadFileReader(sessionId: string): void {
@@ -261,13 +375,16 @@ export function createFileReaderPane(sessionId: string, filePath: string, target
   const header = document.createElement('div');
   header.className = 'file-viewer-header';
 
+  const transcript = isTranscriptFile(filePath);
+  const pdf = isPdfFile(filePath);
   const pathSpan = document.createElement('span');
   pathSpan.className = 'file-viewer-path';
-  pathSpan.textContent = filePath;
+  pathSpan.textContent = transcript ? t('preview.conversationView') : filePath;
+  if (transcript) pathSpan.title = filePath;
 
   const badge = document.createElement('span');
-  badge.className = 'file-reader-badge';
-  badge.textContent = 'READ-ONLY';
+  badge.className = 'file-reader-badge' + (transcript ? ' live' : '');
+  badge.textContent = transcript ? t('preview.live') : pdf ? 'PDF' : 'READ-ONLY';
 
   const tokenBadge = document.createElement('span');
   tokenBadge.className = 'file-reader-token-badge';
@@ -282,10 +399,11 @@ export function createFileReaderPane(sessionId: string, filePath: string, target
   const isImage = isImageFile(filePath);
   const instance: FileReaderInstance = {
     element: el, filePath, resolvedPath: null, loaded: false, targetLine,
-    viewMode: isMd ? 'rendered' : 'raw',
-    kind: isImage ? 'image' : 'text',
+    viewMode: isMd || transcript ? 'rendered' : 'raw',
+    kind: transcript ? 'transcript' : pdf ? 'pdf' : isImage ? 'image' : 'text',
     unsupported: false,
   };
+  if (transcript) el.classList.add('conversation-view');
 
   if (isMd) {
     const toggleGroup = document.createElement('div');
@@ -334,6 +452,7 @@ export function destroyFileReaderPane(sessionId: string): void {
   if (instance.resolvedPath) {
     window.vibeyard.fs.unwatchDir(dirname(instance.resolvedPath));
   }
+  if (instance.reloadTimer) clearTimeout(instance.reloadTimer);
   destroySearchBar(sessionId);
   destroyGoToLineBar(sessionId);
   instance.element.remove();
@@ -420,7 +539,7 @@ const RAW_TEXT_SELECTOR = '.file-reader-line-text';
 export function getFileReaderTextSelector(sessionId: string): string {
   const instance = instances.get(sessionId);
   if (!instance) return RAW_TEXT_SELECTOR;
-  if (instance.kind === 'image' || instance.unsupported) return '.file-reader-no-search';
+  if (instance.kind === 'image' || instance.kind === 'pdf' || instance.unsupported) return '.file-reader-no-search';
   return instance.viewMode === 'rendered' ? MARKDOWN_TEXT_SELECTOR : RAW_TEXT_SELECTOR;
 }
 
@@ -429,7 +548,7 @@ const goToLineBars = new Map<string, { bar: HTMLDivElement; input: HTMLInputElem
 export function showGoToLineBar(sessionId: string): void {
   const instance = instances.get(sessionId);
   if (!instance) return;
-  if (instance.kind === 'image' || instance.unsupported) return;
+  if (instance.kind !== 'text' || instance.unsupported) return;
   if (instance.viewMode === 'rendered') return;
 
   const existing = goToLineBars.get(sessionId);

@@ -2,6 +2,8 @@ import type { Terminal } from '@xterm/xterm';
 import { t } from '../i18n.js';
 import { esc } from '../dom-utils.js';
 import { hideTabContextMenu, setActiveContextMenu } from './tab-bar/menu.js';
+import { appState } from '../state.js';
+import { openConversationView } from '../open-file-reader.js';
 import {
   EFFORT_LEVELS,
   MODEL_CHOICES,
@@ -381,6 +383,20 @@ function rainbowWord(word: string): string {
     .join('');
 }
 
+/** Open this conversation's typeset view (排版视图) in a tab next to it. */
+async function openTypesetView(state: ControlsState): Promise<void> {
+  const project = appState.projects.find((p) => p.sessions.some((s) => s.id === state.sessionId));
+  const session = project?.sessions.find((s) => s.id === state.sessionId);
+  const transcript = session?.cliSessionId
+    ? await window.vibeyard.claudeHistory.transcriptPath(session.cliSessionId).catch(() => null)
+    : null;
+  if (!project || !session || !transcript) {
+    showHint(state, t('preview.notStarted'));
+    return;
+  }
+  openConversationView(project.id, transcript, session.name);
+}
+
 /** The Ultracode switch: a pill without a menu, its name in Claude Code's shimmering rainbow while on. */
 function ultracodeSwitch(on: boolean): string {
   const label = t('sessionControls.ultracode');
@@ -398,6 +414,7 @@ function render(state: ControlsState): void {
     ${pill('effort', '◐', effort, t('sessionControls.effortTitle'))}
     ${pill('mode', state.mode === 'plan' || state.mode === 'default' ? '⏸' : '⏵⏵', mode, t('sessionControls.modeTitle'))}
     ${ultracodeSwitch(state.ultracode)}
+    <button type="button" class="sc-pill sc-typeset" title="${esc(t('sessionControls.typesetTitle'))}"><span class="sc-icon" aria-hidden="true">∑</span><span class="sc-text">${esc(t('sessionControls.typeset'))}</span></button>
   `;
   state.el.dataset.mode = state.mode ?? '';
   const bind = (selector: string, open: (s: ControlsState, a: HTMLElement) => void) => {
@@ -411,6 +428,7 @@ function render(state: ControlsState): void {
   bind('.sc-effort', openEffortMenu);
   bind('.sc-mode', openModeMenu);
   bind('.sc-ultracode', (s) => { void runExclusive(s, () => setUltracode(s, !s.ultracode)); });
+  bind('.sc-typeset', (s) => { void openTypesetView(s); });
 }
 
 // --- Public API ---------------------------------------------------------------

@@ -16,15 +16,22 @@ import {
   refreshConversations,
 } from '../claude-history-store.js';
 import { formatRelativeTime, samePath, tildePath } from '../claude-history-format.js';
-import type { ClaudeConversation } from '../../shared/types.js';
+import { openConversationView, openFileReaderChecked } from '../open-file-reader.js';
+import type { ClaudeConversation, PreviewTreeNode } from '../../shared/types.js';
 
 // The sidebar's 对话 view: every folder that has Claude Code transcripts (plus
 // every Vibeyard project) as a collapsible card, newest activity first, with
 // its conversations listed underneath. Clicking a conversation reopens it the
 // way `/resume` would — `claude -r <id>` in that folder — or focuses its tab
-// when it is already open.
+// when it is already open; its 排版 button opens the typeset conversation view.
+// The active card can switch between 对话 and 文件: the project's folders with
+// the files Crabyard can preview (Markdown, PDF), each opening in a tab.
 
 const PAGE_SIZE = 8;
+/** Re-scan a project's files when its 文件 view is shown and the last scan is older than this. */
+const TREE_STALE_MS = 15_000;
+const ICON_TYPESET = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/></svg>';
+const ICON_FOLDER = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
 const ICON_TRASH = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
 
 export interface ConversationTreeHooks {
@@ -47,6 +54,11 @@ interface FolderGroup {
 const expanded = new Map<string, boolean>();
 const showAll = new Set<string>();
 let filterText = '';
+/** Which list the active card shows, per folder. */
+const cardView = new Map<string, 'conversations' | 'files'>();
+/** Scanned file trees per project folder, and the folders opened in them. */
+const fileTrees = new Map<string, { tree: PreviewTreeNode | null; loading: boolean; at: number }>();
+const openDirs = new Set<string>();
 
 export function setConversationFilter(text: string): void {
   filterText = text.trim().toLowerCase();
@@ -166,7 +178,7 @@ function confirmDeleteConversation(conv: ClaudeConversation): void {
   });
 }
 
-function buildConversationRow(conv: ClaudeConversation, openSessionId: string | undefined, now: number, locale: string): HTMLElement {
+function buildConversationRow(conv: ClaudeConversation, openSessionId: string | undefined, now: number, locale: string, onTypeset: () => void): HTMLElement {
   const row = document.createElement('div');
   const unavailable = !conv.projectCwd || !conv.cwdExists;
   row.className = 'conv-item' + (openSessionId ? ' open' : '') + (unavailable ? ' unavailable' : '');
@@ -183,8 +195,15 @@ function buildConversationRow(conv: ClaudeConversation, openSessionId: string | 
       <div class="conv-title">${esc(conv.title || t('conversations.untitled'))}</div>
       <div class="conv-meta">${esc(meta.join(' · '))}</div>
     </div>
+    <button type="button" class="conv-typeset" aria-label="${esc(t('preview.openConversationView'))}">${ICON_TYPESET}</button>
     ${deletable ? `<button type="button" class="conv-delete" aria-label="${esc(t('conversations.delete'))}">${ICON_TRASH}</button>` : ''}
   `;
+  const typesetBtn = row.querySelector<HTMLButtonElement>('.conv-typeset')!;
+  attachHoverCard(typesetBtn, t('preview.openConversationView'));
+  typesetBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    onTypeset();
+  });
   const deleteBtn = row.querySelector<HTMLButtonElement>('.conv-delete');
   if (deleteBtn) {
     attachHoverCard(deleteBtn, t('conversations.delete'));
@@ -197,8 +216,10 @@ function buildConversationRow(conv: ClaudeConversation, openSessionId: string | 
     e.preventDefault();
     e.stopPropagation();
     showContextMenu(e.clientX, e.clientY, [
+      { label: t('preview.openConversationView'), action: onTypeset },
       {
         label: deletable ? t('conversations.delete') : t('conversations.deleteOpen'),
+        separatorBefore: true,
         danger: deletable,
         disabled: !deletable,
         action: () => confirmDeleteConversation(conv),
@@ -304,11 +325,15 @@ function buildFolder(group: FolderGroup, hooks: ConversationTreeHooks, openIds: 
   }
 
   wrapper.appendChild(header);
+  const view = isActive && group.project ? cardView.get(group.key) ?? 'conversations' : 'conversations';
   if (isActive && group.project) {
+    wrapper.appendChild(buildViewSwitch(group, view));
     for (const el of hooks.buildActiveExtras(group.project)) wrapper.appendChild(el);
   }
 
-  if (open) {
+  if (open && view === 'files' && group.project) {
+    wrapper.appendChild(buildFileTree(group.project));
+  } else if (open) {
     const listEl = document.createElement('div');
     listEl.className = 'conv-list';
     if (list.length === 0) {
@@ -319,7 +344,11 @@ function buildFolder(group: FolderGroup, hooks: ConversationTreeHooks, openIds: 
     }
     const limit = showAll.has(group.key) || filterText ? list.length : PAGE_SIZE;
     for (const conv of list.slice(0, limit)) {
-      listEl.appendChild(buildConversationRow(conv, openIds.get(conv.cliSessionId), now, locale));
+      const onTypeset = () => {
+        const project = ensureProjectFor(group);
+        if (project) openConversationView(project.id, conv.transcriptPath, conv.title);
+      };
+      listEl.appendChild(buildConversationRow(conv, openIds.get(conv.cliSessionId), now, locale, onTypeset));
     }
     if (list.length > limit) {
       const more = document.createElement('button');
@@ -335,6 +364,113 @@ function buildFolder(group: FolderGroup, hooks: ConversationTreeHooks, openIds: 
     wrapper.appendChild(listEl);
   }
   return wrapper;
+}
+
+/** 对话 | 文件 at the top of the active card. */
+function buildViewSwitch(group: FolderGroup, view: 'conversations' | 'files'): HTMLElement {
+  const bar = document.createElement('div');
+  bar.className = 'conv-view-switch';
+  bar.setAttribute('role', 'tablist');
+  for (const [key, label] of [['conversations', t('preview.tabConversations')], ['files', t('preview.tabFiles')]] as const) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'conv-view-btn' + (view === key ? ' active' : '');
+    btn.setAttribute('role', 'tab');
+    btn.setAttribute('aria-selected', String(view === key));
+    btn.textContent = label;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      cardView.set(group.key, key);
+      expanded.set(group.key, true);
+      if (key === 'files' && group.path) loadFileTree(group.path, true);
+      renderInto?.();
+    });
+    bar.appendChild(btn);
+  }
+  return bar;
+}
+
+function loadFileTree(dir: string, force = false): void {
+  const cached = fileTrees.get(dir);
+  if (cached?.loading || (!force && cached && Date.now() - cached.at < TREE_STALE_MS)) return;
+  fileTrees.set(dir, { tree: cached?.tree ?? null, loading: true, at: cached?.at ?? 0 });
+  void window.vibeyard.fs
+    .previewTree(dir)
+    .catch(() => null)
+    .then((tree) => {
+      fileTrees.set(dir, { tree, loading: false, at: Date.now() });
+      renderInto?.();
+    });
+}
+
+function countFiles(node: PreviewTreeNode): number {
+  return node.files.length + node.dirs.reduce((n, d) => n + countFiles(d), 0);
+}
+
+/** The project's folders and previewable files; a file opens in a preview tab. */
+function buildFileTree(project: ProjectRecord): HTMLElement {
+  const listEl = document.createElement('div');
+  listEl.className = 'conv-list file-tree';
+  loadFileTree(project.path);
+  const entry = fileTrees.get(project.path);
+  const tree = entry?.tree;
+  if (!tree) {
+    const status = document.createElement('div');
+    status.className = 'conv-empty';
+    status.textContent = entry?.loading ? t('preview.scanning') : t('preview.scanFailed');
+    listEl.appendChild(status);
+    return listEl;
+  }
+  if (countFiles(tree) === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'conv-empty';
+    empty.textContent = t('preview.noFiles');
+    listEl.appendChild(empty);
+    return listEl;
+  }
+  const now = Date.now();
+  const locale = getLocale();
+  const addNode = (node: PreviewTreeNode, depth: number) => {
+    for (const dir of node.dirs) {
+      const isOpen = openDirs.has(dir.path);
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'file-tree-row file-tree-dir';
+      row.style.paddingLeft = `${10 + depth * 14}px`;
+      row.title = dir.path;
+      row.innerHTML = `<span class="conv-chevron${isOpen ? ' open' : ''}" aria-hidden="true"></span><span class="file-tree-icon">${ICON_FOLDER}</span><span class="file-tree-name">${esc(dir.name)}</span><span class="file-tree-meta">${countFiles(dir)}</span>`;
+      row.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (isOpen) openDirs.delete(dir.path);
+        else openDirs.add(dir.path);
+        renderInto?.();
+      });
+      listEl.appendChild(row);
+      if (isOpen) addNode(dir, depth + 1);
+    }
+    for (const file of node.files) {
+      const row = document.createElement('button');
+      row.type = 'button';
+      const pdf = /\.pdf$/i.test(file.name);
+      row.className = 'file-tree-row file-tree-file';
+      row.style.paddingLeft = `${10 + depth * 14 + 16}px`;
+      row.title = file.path;
+      row.innerHTML = `<span class="file-tree-badge ${pdf ? 'pdf' : 'md'}">${pdf ? 'PDF' : 'MD'}</span><span class="file-tree-name">${esc(file.name)}</span><span class="file-tree-meta">${esc(formatRelativeTime(file.mtimeMs, now, locale))}</span>`;
+      row.addEventListener('click', (e) => {
+        e.stopPropagation();
+        void openFileReaderChecked(project.id, file.path);
+      });
+      listEl.appendChild(row);
+    }
+  };
+  addNode(tree, 0);
+  if (tree.truncated) {
+    const note = document.createElement('div');
+    note.className = 'conv-empty file-tree-note';
+    note.textContent = t('preview.truncated');
+    listEl.appendChild(note);
+  }
+  return listEl;
 }
 
 let renderInto: (() => void) | null = null;

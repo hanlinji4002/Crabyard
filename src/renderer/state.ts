@@ -553,7 +553,7 @@ class AppState {
     return prompt;
   }
 
-  addFileReaderSession(projectId: string, filePath: string, lineNumber?: number): SessionRecord | undefined {
+  addFileReaderSession(projectId: string, filePath: string, lineNumber?: number, name?: string): SessionRecord | undefined {
     const project = this.state.projects.find((p) => p.id === projectId);
     if (!project) return undefined;
 
@@ -577,7 +577,7 @@ class AppState {
       return existing;
     }
 
-    const session = buildFileReaderSession({ name: basename(normalizedPath), filePath: normalizedPath, lineNumber });
+    const session = buildFileReaderSession({ name: name || basename(normalizedPath), filePath: normalizedPath, lineNumber });
     attachSessionToProject(project, session);
     this.commitNewSession(projectId, session);
     return session;

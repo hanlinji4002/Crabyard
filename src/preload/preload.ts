@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron';
-import type { CostData, ProviderId, CliProviderMeta, ToolFailureData, SettingsWarningData, SettingsValidationResult, StatusLineConflictData, InspectorEvent, ProviderConfig, ReadFileResult, FileStatResult, FsChange, DeepSearchResult, ClaudeConversationList, ClaudeUsageReport, ConversationChanges, ClipboardSource, SkillInfo, SkillScope, PluginInfo } from '../shared/types';
+import type { CostData, ProviderId, CliProviderMeta, ToolFailureData, SettingsWarningData, SettingsValidationResult, StatusLineConflictData, InspectorEvent, ProviderConfig, ReadFileResult, FileStatResult, FsChange, DeepSearchResult, ClaudeConversationList, ClaudeUsageReport, ConversationChanges, ClipboardSource, SkillInfo, SkillScope, PluginInfo, PreviewTreeNode } from '../shared/types';
 import { ZOOM_MIN, ZOOM_MAX } from '../shared/types';
 
 export type { CostData } from '../shared/types';
@@ -47,6 +47,8 @@ export interface VibeyardApi {
     unwatchDir(dirPath: string): void;
     onFsChange(callback: (changes: FsChange[]) => void): () => void;
     getDroppedFilePath(file: File): string;
+    /** A project's folders pruned to the files Crabyard can preview (Markdown, PDF). */
+    previewTree(dirPath: string): Promise<PreviewTreeNode | null>;
   };
   store: {
     load(): Promise<unknown>;
@@ -125,6 +127,8 @@ export interface VibeyardApi {
     trash(transcriptPath: string): Promise<{ ok: boolean; error?: string }>;
     /** Files a conversation changed: its latest turn and the whole conversation. */
     changes(cliSessionId: string): Promise<ConversationChanges | null>;
+    /** Where a conversation's transcript is, or null when it can't be found. */
+    transcriptPath(cliSessionId: string): Promise<string | null>;
   };
   settings: {
     onWarning(callback: (data: SettingsWarningData) => void): () => void;
@@ -228,6 +232,7 @@ const api: VibeyardApi = {
     unwatchDir: (dirPath: string) => ipcRenderer.send('fs:unwatchDir', dirPath),
     onFsChange: (callback: (changes: FsChange[]) => void) => onChannel('fs:changed', (changes) => callback(changes as FsChange[])),
     getDroppedFilePath: (file: File) => webUtils.getPathForFile(file),
+    previewTree: (dirPath: string) => ipcRenderer.invoke('fs:previewTree', dirPath),
   },
   provider: {
     getConfig: (providerId, projectPath) => ipcRenderer.invoke('provider:getConfig', providerId, projectPath),
@@ -296,6 +301,7 @@ const api: VibeyardApi = {
     usage: (force) => ipcRenderer.invoke('claudeHistory:usage', force),
     trash: (transcriptPath) => ipcRenderer.invoke('claudeHistory:trash', transcriptPath),
     changes: (cliSessionId) => ipcRenderer.invoke('claudeHistory:changes', cliSessionId),
+    transcriptPath: (cliSessionId) => ipcRenderer.invoke('claudeHistory:transcriptPath', cliSessionId),
   },
   settings: {
     onWarning: (cb) => onChannel('settings:warning', (data) => cb(data as SettingsWarningData)),

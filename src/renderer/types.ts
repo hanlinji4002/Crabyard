@@ -1,5 +1,5 @@
 export type { McpServer, Agent, Skill, Command, ProviderConfig, ClaudeConfig, GitWorktree, GitFileEntry, CostData, ProviderId, CliProviderMeta, CliProviderCapabilities, ClipboardSource } from '../shared/types.js';
-import type { CostData, ProviderConfig, GitWorktree, ProviderId, CliProviderMeta, FsChange, ClaudeConversationList, ClaudeUsageReport, ConversationChanges, ClipboardSource, SkillInfo, SkillScope, PluginInfo } from '../shared/types.js';
+import type { CostData, ProviderConfig, GitWorktree, ProviderId, CliProviderMeta, FsChange, ClaudeConversationList, ClaudeUsageReport, ConversationChanges, ClipboardSource, SkillInfo, SkillScope, PluginInfo, PreviewTreeNode, ReadFileResult } from '../shared/types.js';
 
 export interface VibeyardApi {
   pty: {
@@ -30,12 +30,13 @@ export interface VibeyardApi {
     browseDirectory(): Promise<string | null>;
     listFiles(cwd: string, query: string): Promise<string[]>;
     exists(filePath: string): Promise<boolean>;
-    readFile(filePath: string): Promise<string>;
+    readFile(filePath: string): Promise<ReadFileResult>;
     readImage(filePath: string): Promise<{ dataUrl: string } | null>;
     showInFolder(targetPath: string): Promise<{ ok: boolean; error?: string }>;
     watchDir(dirPath: string): void;
     unwatchDir(dirPath: string): void;
     onFsChange(callback: (changes: FsChange[]) => void): () => void;
+    previewTree(dirPath: string): Promise<PreviewTreeNode | null>;
   };
   store: {
     load(): Promise<unknown>;
@@ -92,6 +93,7 @@ export interface VibeyardApi {
     usage(force?: boolean): Promise<ClaudeUsageReport>;
     trash(transcriptPath: string): Promise<{ ok: boolean; error?: string }>;
     changes(cliSessionId: string): Promise<ConversationChanges | null>;
+    transcriptPath(cliSessionId: string): Promise<string | null>;
   };
   clipboard: {
     write(text: string, source?: ClipboardSource): Promise<void>;

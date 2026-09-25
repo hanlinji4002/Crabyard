@@ -600,3 +600,123 @@
   opacity: 0.9;
 }
 
+
+/* --- PDF previews: Chromium's own viewer fills the tab --------------------- */
+
+.file-reader-pdf {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #525659;
+}
+
+.file-reader-body:has(> .file-reader-pdf) {
+  overflow: hidden;
+}
+
+/* --- Typeset formulas in Markdown ------------------------------------------ */
+
+.md-math-block {
+  margin: 10px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.md-math-display {
+  display: block;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.file-reader-markdown .katex {
+  font-size: 1.08em;
+}
+
+/* --- The conversation view (排版视图) -------------------------------------- */
+
+.file-reader-badge.live {
+  color: #3fb660;
+  background: rgba(46, 158, 79, 0.15);
+}
+
+.tv-list {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 18px 24px 48px;
+}
+
+.tv-turn {
+  margin: 0 0 20px;
+}
+
+.tv-who {
+  margin: 0 0 5px 2px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  color: var(--text-muted);
+}
+
+.tv-assistant .tv-who {
+  color: var(--accent);
+}
+
+.tv-text.file-reader-markdown {
+  padding: 0;
+}
+
+.tv-user .tv-text {
+  padding: 8px 14px;
+  background: var(--bg-tertiary);
+  border-radius: 10px;
+}
+
+.tv-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0 8px;
+}
+
+.tv-tool {
+  max-width: 100%;
+  padding: 1px 7px;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: var(--border-subtle);
+  border-radius: 5px;
+}
+
+.tv-tool b {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.tv-earlier {
+  display: block;
+  margin: 0 auto 18px;
+  padding: 4px 14px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--border-subtle);
+  border: none;
+  border-radius: 99px;
+  cursor: pointer;
+}
+
+.tv-earlier:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.tv-empty {
+  padding: 48px 0;
+  color: var(--text-muted);
+  text-align: center;
+}

@@ -21,8 +21,8 @@
 
 Crabyard 把 Claude Code CLI 放进一个桌面窗口：
 
-- **左边**：按文件夹整理好的全部 Claude Code 对话，点一下接着聊。
-- **中间**：真正的 `claude` 终端，底部有模型、思考、权限模式、Ultracode 按钮。
+- **左边**：按文件夹整理好的全部 Claude Code 对话，点一下接着聊；切到「文件」可以浏览项目里的 .md 和 PDF。
+- **中间**：真正的 `claude` 终端，底部有模型、思考、权限模式、Ultracode、排版按钮；文件预览和对话排版视图也在这里开标签页。
 - **右边**：这次对话改了哪些文件、Skills 和插件开关、当前用量和用量统计，还有一个 Clawd 浴缸——每个开着的对话是一只像素螃蟹，跟着 Claude 干活。
 
 它**不替代** Claude Code：每个标签页里跑的就是你自己装好的 `claude`，登录、设置、skills、插件、历史对话都是你原来的那一套。Crabyard 只是在外面加了一层看得见、点得到的界面。
@@ -85,6 +85,13 @@ Crabyard 把 Claude Code CLI 放进一个桌面窗口：
   <img src="docs/crabyard-animations.webp" alt="All ten Clawd animations" width="900" />
 </p>
 
+### 文件预览和排版视图
+
+- **对话 | 文件**：当前项目的卡片上可以在对话列表和文件树之间切换。文件树只显示 `.md`、`.pdf` 和装着它们的文件夹，跳过 `node_modules`、`dist`、`.git` 这类目录；点文件就在新标签页里预览。
+- **Markdown 预览**：用 [KaTeX](https://katex.org) 排版公式，`$…$`、`$$…$$`、`\(…\)`、`\[…\]` 都认；表格、代码块、插图照常显示，文件改了预览自动刷新。代码块里的 `$` 和「$5、$10」这样的价格不会被当成公式。
+- **PDF 预览**：Chromium 自带的 PDF 查看器，缩略图、翻页、缩放、打印都有。
+- **排版视图**：把一个对话里 Claude 的回答排好版——公式、表格、代码块——中间跑过的工具显示成小标签，进行中的对话实时更新。它直接读对话记录（`~/.claude/projects` 里的 jsonl），所以公式是 Claude 原样写出来的；终端里 Claude Code 会把回答重画一遍，常常把 `\\`、`\[`、`$$` 改坏。从终端底部的「∑ 排版」打开当前对话，或者在对话列表里点某条对话的排版按钮。
+
 ### 右边栏
 
 每块都能单独开关、拖动边缘调整高度：
@@ -108,6 +115,7 @@ Crabyard 把 Claude Code CLI 放进一个桌面窗口：
 | Skills 和插件 | 手改 settings.json、敲 `claude plugin` | 没有 | 开关按钮 |
 | 对话状态 | 终端里的文字 | 标签页上的彩色圆点 | 圆点 + Clawd 浴缸（晕倒、倒下、子代理都看得见） |
 | 默认值 | 手动确认、默认思考强度 | 同 Claude Code | `bypassPermissions` + `xhigh` |
+| 看 .md、PDF 和公式 | 终端里是原始文字，回答里的公式常被重画改坏 | 文件查看，Markdown 不排公式 | 文件树 + 预览，公式用 KaTeX 排版，对话排版视图 |
 | 界面 | 终端 | 深色、浅色主题 | Claude 暖色主题 + 衬线字体，像素螃蟹和动画 |
 
 **Crabyard 保留了 Vibeyard 的**：一个项目里开多个会话、Swarm 网格视图、多个 Claude 账号（profile）并排用、会话检查器、会话恢复、深色和浅色主题、把自己的会话分享给别人、Codex / Gemini / Copilot CLI 支持。
@@ -130,6 +138,7 @@ npm run app
 - [Vibeyard](https://github.com/elirantutia/vibeyard) — Eliran Tutia 和[各位贡献者](https://github.com/elirantutia/vibeyard/graphs/contributors)，MIT。Crabyard 的底子：本仓库从 Vibeyard 0.3.8 的代码开始，原来的提交历史保留在原仓库里。
 - [clawd-tank](https://github.com/marciogranzotto/clawd-tank) — Marcio Granzotto Rodrigues，MIT。浴缸里的螃蟹动画和夜空背景（`src/renderer/assets/clawd/`，附原许可证）。
 - [clawd-avatar-skill](https://github.com/YANZHANLIN/clawd-avatar-skill) — YANZHANLIN。Clawd 动画的画法和规格（动画模式、场景模式、帽子、道具和角色预设）。
+- [KaTeX](https://github.com/KaTeX/KaTeX) — MIT。Markdown 预览和排版视图里的公式排版。
 - Ultracode 按钮的动画参考了 [pi](https://github.com/earendil-works/pi) 的 rainbow-editor 示例（扫光节奏，MIT）和 [Magic UI](https://github.com/magicuidesign/magicui) 的 Rainbow Button（流动彩虹边框的写法，MIT），配色取自 Claude Code 自己的主题。只借鉴了做法，没有复制代码。
 
 ## English
@@ -138,6 +147,7 @@ Crabyard wraps the Claude Code CLI in a desktop window. Every tab runs your own 
 
 - all your Claude Code conversations, grouped by folder, resumable in one click;
 - one-click model, effort, permission-mode and Ultracode switches under each session;
+- a Files view of each project's Markdown and PDF files, previewed in tabs with formulas typeset by KaTeX, and a typeset view of any conversation read straight from its transcript;
 - the files each conversation changed, with diffs;
 - Skills and plugin switches;
 - 5-hour and weekly usage rings, plus cost stats;

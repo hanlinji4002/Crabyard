@@ -15,7 +15,8 @@ import { createAppMenu } from './menu';
 import { getProvider, getProviderMeta, getAllProviderMetas, getAllProviders } from './providers/registry';
 import { buildHandoffPrompt } from './providers/resume-handoff';
 import { searchSessions } from './session-deep-search';
-import { conversationPathsForTrash, forgetConversation, getClaudeUsage, listClaudeConversations } from './claude-history';
+import { findTranscriptPath, conversationPathsForTrash, forgetConversation, getClaudeUsage, listClaudeConversations } from './claude-history';
+import { buildPreviewTree } from './preview-tree';
 import { getConversationChanges } from './conversation-changes';
 import { listSkills, setSkillEnabled } from './skills';
 import { listPlugins, setPluginEnabled } from './plugins';
@@ -268,6 +269,13 @@ export function registerIpcHandlers(): void {
     }
   });
 
+  ipcMain.handle('fs:previewTree', (_event, dirPath: unknown) => {
+    if (typeof dirPath !== 'string') return null;
+    const resolved = path.resolve(expandUserPath(dirPath));
+    if (!isAllowedReadPath(resolved)) return null;
+    return buildPreviewTree(resolved);
+  });
+
   ipcMain.handle('fs:listDir', (_event, dirPath: string) => {
     try {
       const expanded = expandUserPath(dirPath);
@@ -399,6 +407,9 @@ export function registerIpcHandlers(): void {
   });
 
   ipcMain.handle('claudeHistory:list', (_event, force?: boolean) => listClaudeConversations(!!force));
+  ipcMain.handle('claudeHistory:transcriptPath', (_event, cliSessionId: unknown) =>
+    typeof cliSessionId === 'string' ? findTranscriptPath(cliSessionId) : null,
+  );
   ipcMain.handle('claudeHistory:usage', (_event, force?: boolean) => getClaudeUsage(!!force));
   ipcMain.handle('claudeHistory:changes', (_event, cliSessionId: unknown) =>
     typeof cliSessionId === 'string' ? getConversationChanges(cliSessionId) : null);

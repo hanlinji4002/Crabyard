@@ -411,7 +411,9 @@
       "capped": "Can't turn on Ultracode: your settings or organization cap effort below xhigh",
       "unsupported": "Can't turn on Ultracode: this model doesn't support xhigh — switch to one that does (e.g. Opus 5.5)",
       "envOverride": "Ultracode can't take effect: CLAUDE_CODE_EFFORT_LEVEL overrides the effort — clear it first"
-    }
+    },
+    "typeset": "Typeset",
+    "typesetTitle": "Typeset view: Claude's replies in this conversation with formulas, tables and code laid out, updating live"
   },
   "usagePanel": {
     "toggle": "Show or hide usage totals",
@@ -520,5 +522,22 @@
     "created": "new",
     "truncated": "Large change — showing the first part.",
     "note": "Counts edits Claude made with Edit / Write; files changed by shell commands aren't included."
+  },
+  "preview": {
+    "tabConversations": "Conversations",
+    "tabFiles": "Files",
+    "scanning": "Looking for files to preview…",
+    "scanFailed": "Couldn't read this folder",
+    "noFiles": "No .md or .pdf files in this project yet",
+    "truncated": "Too many files — only some are listed",
+    "openConversationView": "Typeset view",
+    "tabName": "Typeset · {title}",
+    "conversationView": "Conversation, typeset",
+    "live": "Live",
+    "you": "You",
+    "showEarlier": "Show {count} earlier turns",
+    "emptyConversation": "Nothing in this conversation yet",
+    "loadFailed": "Couldn't read this conversation",
+    "notStarted": "The conversation hasn't started yet — send a message first"
   }
 }

@@ -58,7 +58,7 @@ describe('renderMarkdownContent link handling', () => {
 
   it('opens a relative file link in a file reader tab, resolved against the base dir', async () => {
     clickFirstLink('[x](../README.md)', '/repo/docs');
-    await vi.waitFor(() => expect(addFileReaderSession).toHaveBeenCalledWith('p1', '/repo/README.md', undefined));
+    await vi.waitFor(() => expect(addFileReaderSession).toHaveBeenCalledWith('p1', '/repo/README.md', undefined, undefined));
   });
 
   it('does not open a tab when the linked file is missing', async () => {

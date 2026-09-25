@@ -173,3 +173,9 @@
 .session-controls-menu {
   min-width: 190px;
 }
+
+/* 排版: opens this conversation's typeset view. */
+.sc-typeset .sc-icon {
+  font-size: 12px;
+  font-weight: 700;
+}

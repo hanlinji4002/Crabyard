@@ -52,6 +52,7 @@ function createWindow(): void {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false, // needed for node-pty IPC
+      plugins: true, // Chromium's PDF viewer, for PDF previews
     },
   });
 

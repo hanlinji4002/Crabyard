@@ -1,5 +1,6 @@
 import { appState } from './state.js';
 import { resolveProjectFilePath } from './state/specialized-sessions.js';
+import { t } from './i18n.js';
 
 /**
  * Open a path in a file-reader tab, but only once the path is known to be an
@@ -25,6 +26,8 @@ export async function openFileReaderChecked(
   projectId: string,
   filePath: string,
   lineNumber?: number,
+  /** Tab name instead of the file name, e.g. for a conversation view. */
+  name?: string,
 ): Promise<void> {
   const project = appState.activeProject;
   if (project?.id !== projectId) {
@@ -57,5 +60,10 @@ export async function openFileReaderChecked(
     return;
   }
 
-  appState.addFileReaderSession(projectId, fullPath, lineNumber);
+  appState.addFileReaderSession(projectId, fullPath, lineNumber, name);
+}
+
+/** Open a Claude Code conversation's transcript as the typeset conversation view (排版视图). */
+export function openConversationView(projectId: string, transcriptPath: string, title: string): void {
+  void openFileReaderChecked(projectId, transcriptPath, undefined, t('preview.tabName', { title: title || t('conversations.untitled') }));
 }

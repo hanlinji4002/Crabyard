@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2026-09-25
+
+First Crabyard release — a Claude Code workbench built on Vibeyard 0.3.8.
+
+### Features
+
+- Conversations sidebar: every Claude Code conversation in `~/.claude/projects`, grouped by folder, resumed in one click
+- Session switches under each Claude pane: model, effort, permission mode, Ultracode (with Claude Code's rainbow shimmer) and a typeset view
+- Files view on the project card: Markdown and PDF files previewed in tabs, formulas typeset with KaTeX
+- Typeset conversation view: Claude's replies read straight from the transcript, formulas intact, updating live
+- Clawd tub: a pixel crab per conversation that acts out its work, gets knocked out on API errors and shows subagents
+- Ten pixel animations, including Luffy, Naruto, Akatsuki, Harry Potter and Quidditch
+- Right column: this turn's and this conversation's changes with diffs, Skills and plugin switches, 5-hour and weekly usage, cost stats
+
+### Changes
+
+- New sessions default to `bypassPermissions` and `xhigh` effort
+- Git status shows as a hover card on session tabs
+- Removed Vibeyard's project dashboard, kanban board, embedded browser, MCP inspector and joining shared sessions
+
 ## [0.3.8] - 2026-09-03
 
 ### Fixes

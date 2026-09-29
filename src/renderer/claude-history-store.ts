@@ -49,19 +49,21 @@ export function usageFailed(): boolean {
 }
 
 function conversationsSignature(list: ClaudeConversation[]): string {
-  return list.map((c) => `${c.cliSessionId}|${c.updatedAt}|${c.turns}|${c.title}|${c.cwdExists}`).join('\n');
+  return list.map((c) => `${c.cliSessionId}|${c.updatedAt}|${c.turns}|${c.title}|${c.cwdExists}|${c.background?.live ? 1 : 0}`).join('\n');
 }
 
 /**
  * Re-fetch the conversation list. Background refreshes only notify listeners
  * when something changed, so periodic polling doesn't rebuild the sidebar;
  * `force` (the refresh button) also notifies at start so the UI can show progress.
+ * `rescan` skips main's reuse of a scan from the last few seconds, quietly: for
+ * when a new transcript is known to be there.
  */
-export function refreshConversations(force = false): Promise<void> {
+export function refreshConversations(force = false, rescan = force): Promise<void> {
   if (listPromise) return listPromise;
   const before = conversations ? conversationsSignature(conversations) : null;
   const errorBefore = listError;
-  listPromise = window.vibeyard.claudeHistory.list(force)
+  listPromise = window.vibeyard.claudeHistory.list(rescan)
     .then((res) => {
       conversations = res.conversations;
       listError = false;

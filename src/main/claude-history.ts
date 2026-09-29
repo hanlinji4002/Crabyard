@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as readline from 'readline';
 import { loadState } from './store';
 import { UUID_RE } from './providers/transcript-utils';
+import { listBackgroundJobs, liveBackgroundJob, type BackgroundJob } from './claude-jobs';
 import { estimateCostUsd, normalizeModelId } from '../shared/claude-pricing';
 import type {
   ClaudeConversation,
@@ -48,6 +49,10 @@ export interface TranscriptDigest {
   gitBranch?: string;
   lastModel?: string;
   usage: UsageRecord[];
+  /** The background session this conversation was handed off to, unless it went on here afterwards. */
+  continuedIn?: string;
+  /** Holds at least one message record (a `"parentUuid":` line): more than titles and settings. */
+  hasMessages?: boolean;
 }
 
 interface TranscriptFile {
@@ -142,6 +147,90 @@ export function extractUserText(content: unknown): string {
   return text;
 }
 
+// --- Hand-offs to background sessions ---------------------------------------
+
+// Claude Code's "background this conversation" gesture (← on an empty prompt,
+// clicking a /fork's name) moves a conversation to a new background session
+// and appends {"type":"continued-in","continuedInSessionId":B} to the old
+// transcript. The newest such record counts until a completed turn follows it
+// (the conversation went on in the foreground after all); a user's prompt or a
+// finished reply is one. The CLI reads the record the same way (2.1.283).
+
+const CONTINUED_IN = '"type":"continued-in"';
+const PARENT_UUID = '"parentUuid":';
+
+/** How one line bears on a hand-off: where the conversation went, a completed turn, or neither. */
+export function handoffLine(line: string): { continuedIn: string } | 'turn' | null {
+  const continued = line.includes(CONTINUED_IN);
+  if (!continued && !line.includes('"type":"user"') && !line.includes('"type":"assistant"')) return null;
+  let e: Record<string, any>;
+  try {
+    e = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  if (e.type === 'continued-in') {
+    const to = e.continuedInSessionId;
+    return typeof to === 'string' && UUID_RE.test(to) ? { continuedIn: to } : null;
+  }
+  if (e.isSidechain) return null;
+  if (e.type === 'assistant') return e.isApiErrorMessage !== true && typeof e.message?.stop_reason === 'string' ? 'turn' : null;
+  if (e.type === 'user' && !e.isMeta) return cleanUserText(extractUserText(e.message?.content)).kind !== 'skip' ? 'turn' : null;
+  return null;
+}
+
+/** Where a conversation was handed off to, from the tail of its transcript (synchronous). */
+export function readContinuedIn(transcriptPath: string, maxBytes = 8 * 1024 * 1024): string | undefined {
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(transcriptPath, 'r');
+    const size = fs.fstatSync(fd).size;
+    for (let window = 256 * 1024; ; window *= 4) {
+      const len = Math.min(window, size, maxBytes);
+      const buf = Buffer.alloc(len);
+      fs.readSync(fd, buf, 0, len, size - len);
+      const lines = buf.toString('utf8').split('\n');
+      for (let i = lines.length - 1; i >= (len < size ? 1 : 0); i--) {
+        const hit = handoffLine(lines[i]);
+        if (hit === 'turn') return undefined;
+        if (hit) return hit.continuedIn;
+      }
+      if (len >= size || len >= maxBytes) return undefined;
+    }
+  } catch {
+    return undefined;
+  } finally {
+    if (fd !== undefined) {
+      try { fs.closeSync(fd); } catch { /* already closed */ }
+    }
+  }
+}
+
+/** A transcript that holds messages, not just titles: what makes a hand-off's target real. */
+export function transcriptHasMessages(transcriptPath: string, maxBytes = 16 * 1024 * 1024): boolean {
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(transcriptPath, 'r');
+    const chunk = Buffer.alloc(1024 * 1024);
+    let carry = '';
+    for (let pos = 0; pos < maxBytes; ) {
+      const n = fs.readSync(fd, chunk, 0, chunk.length, pos);
+      if (n <= 0) return false;
+      const text = carry + chunk.subarray(0, n).toString('latin1');
+      if (text.includes(PARENT_UUID)) return true;
+      carry = text.slice(-PARENT_UUID.length);
+      pos += n;
+    }
+    return false;
+  } catch {
+    return false;
+  } finally {
+    if (fd !== undefined) {
+      try { fs.closeSync(fd); } catch { /* already closed */ }
+    }
+  }
+}
+
 // --- Line digestion -------------------------------------------------------
 
 function num(v: unknown): number {
@@ -164,6 +253,12 @@ function readTitle(line: string, field: string): string | undefined {
  */
 export function applyTranscriptLine(d: TranscriptDigest, line: string, fallbackKey: string): void {
   if (line.length < 2) return;
+  if (!d.hasMessages && line.includes(PARENT_UUID)) d.hasMessages = true;
+  if (line.startsWith('{"type":"continued-in"')) {
+    const hit = handoffLine(line);
+    if (hit && hit !== 'turn') d.continuedIn = hit.continuedIn;
+    return;
+  }
   if (line.startsWith('{"type":"custom-title"')) { d.customTitle = readTitle(line, 'customTitle') ?? d.customTitle; return; }
   if (line.startsWith('{"type":"agent-name"')) { d.agentName = readTitle(line, 'agentName') ?? d.agentName; return; }
   if (line.startsWith('{"type":"ai-title"')) { d.aiTitle = readTitle(line, 'aiTitle') ?? d.aiTitle; return; }
@@ -190,6 +285,8 @@ export function applyTranscriptLine(d: TranscriptDigest, line: string, fallbackK
 
   if (e.type === 'assistant') {
     const message = e.message;
+    // A finished reply after a hand-off: the conversation went on here.
+    if (d.continuedIn && !e.isSidechain && e.isApiErrorMessage !== true && typeof message?.stop_reason === 'string') d.continuedIn = undefined;
     const model = typeof message?.model === 'string' ? message.model : '';
     if (!model || model === '<synthetic>') return;
     d.lastModel = model;
@@ -218,6 +315,7 @@ export function applyTranscriptLine(d: TranscriptDigest, line: string, fallbackK
   const { kind, text } = cleanUserText(extractUserText(e.message?.content));
   if (kind === 'skip') return;
   d.turns++;
+  d.continuedIn = undefined;
   if (kind === 'command') d.firstCommand = d.firstCommand ?? text;
   else d.firstPrompt = d.firstPrompt ?? text;
 }
@@ -397,6 +495,36 @@ export function conversationPathsForTrash(transcriptPath: unknown): string[] | n
   return out;
 }
 
+/** How recently a transcript may have been written to and still be trashed. */
+const TRASH_QUIET_MS = 60_000;
+
+/**
+ * Why a conversation's transcript must not go to the Trash right now: a tab
+ * has it open, Claude Code runs it as a live background session (/fork), or
+ * something wrote to it a moment ago. Trashing a transcript that is still
+ * being written only makes the CLI start a new file without the history.
+ * `transcriptPath` is one conversationPathsForTrash accepted.
+ */
+export function conversationBusy(transcriptPath: string): 'open' | 'background' | 'recent' | null {
+  const cliSessionId = path.basename(transcriptPath, '.jsonl');
+  let openIds: string[] = [];
+  try {
+    openIds = (loadState().projects ?? []).flatMap((p) => p.sessions.map((s) => s.cliSessionId ?? ''));
+  } catch {
+    // no saved state: nothing is open
+  }
+  if (openIds.includes(cliSessionId)) return 'open';
+  // <config dir>/projects/<project folder>/<session id>.jsonl
+  const configDir = path.dirname(path.dirname(path.dirname(transcriptPath)));
+  if (liveBackgroundJob(cliSessionId, configDir)) return 'background';
+  try {
+    if (Date.now() - fs.statSync(transcriptPath).mtimeMs < TRASH_QUIET_MS) return 'recent';
+  } catch {
+    // gone already: let the trash call report it
+  }
+  return null;
+}
+
 /** Drop a trashed conversation (and its sidecar files) from the scan cache. */
 export function forgetConversation(transcriptPath: string): void {
   const resolved = path.resolve(transcriptPath);
@@ -406,30 +534,103 @@ export function forgetConversation(transcriptPath: string): void {
   for (const key of [...cache.keys()]) if (gone(key)) cache.delete(key);
 }
 
+/** Background sessions (/fork, /background) under every projects root, by session id. */
+function backgroundJobs(): Map<string, BackgroundJob & { profileId?: string }> {
+  const out = new Map<string, BackgroundJob & { profileId?: string }>();
+  for (const [root, profileId] of projectRoots()) {
+    for (const job of listBackgroundJobs(path.dirname(root))) {
+      if (!out.has(job.sessionId)) out.set(job.sessionId, { ...job, profileId });
+    }
+  }
+  return out;
+}
+
+function optional<K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } {
+  return (value === undefined ? {} : { [key]: value }) as { [P in K]?: V };
+}
+
+function backgroundFields(job: BackgroundJob | undefined): Pick<ClaudeConversation, 'background' | 'forkOf'> {
+  if (!job) return {};
+  return {
+    background: { short: job.short, live: job.live, state: job.state },
+    ...(job.forkParentSessionId ? { forkOf: job.forkParentSessionId } : {}),
+  };
+}
+
 export async function listClaudeConversations(force = false): Promise<ClaudeConversationList> {
   await ensureScanned(force);
+  const jobs = backgroundJobs();
   const cwdExists = new Map<string, boolean>();
+  const exists = (cwd: string): boolean => {
+    let hit = cwdExists.get(cwd);
+    if (hit === undefined) {
+      hit = !!cwd && fs.existsSync(cwd);
+      cwdExists.set(cwd, hit);
+    }
+    return hit;
+  };
+  // A transcript with no prompt or reply yet has no cwd of its own; its folder's
+  // other transcripts tell where it belongs.
+  const folderCwd = new Map<string, string>();
+  for (const file of files) {
+    const cwd = cache.get(file.filePath)?.digest.cwd;
+    if (cwd) folderCwd.set(`${file.profileId ?? ''}\0${file.slug}`, cwd);
+  }
+  // Handed off to a background session that is running or has content: the
+  // conversation goes on there, so this copy is left out, as Claude Code's
+  // own /resume leaves it out.
+  const superseded = (file: TranscriptFile, d: TranscriptDigest): boolean => {
+    if (!d.continuedIn) return false;
+    if (jobs.get(d.continuedIn)?.live) return true;
+    return !!cache.get(path.join(path.dirname(file.filePath), `${d.continuedIn}.jsonl`))?.digest.hasMessages;
+  };
+  // Which conversations each one carries on, so names given to those can follow.
+  const handedOff = new Map<string, string[]>();
+  for (const file of files) {
+    const d = file.cliSessionId ? cache.get(file.filePath)?.digest : undefined;
+    if (!d?.continuedIn || !superseded(file, d)) continue;
+    const from = handedOff.get(d.continuedIn) ?? [];
+    from.push(file.cliSessionId!);
+    handedOff.set(d.continuedIn, from);
+  }
+  const continuedFrom = (id: string): string[] | undefined => {
+    const chain: string[] = [];
+    const seen = new Set([id]);
+    for (let level = handedOff.get(id) ?? []; level.length; ) {
+      const next: string[] = [];
+      for (const prev of level) {
+        if (seen.has(prev)) continue;
+        seen.add(prev);
+        chain.push(prev);
+        next.push(...(handedOff.get(prev) ?? []));
+      }
+      level = next;
+    }
+    return chain.length ? chain : undefined;
+  };
   const conversations: ClaudeConversation[] = [];
+  const listed = new Set<string>();
   for (const file of files) {
     if (!file.cliSessionId) continue;
     const entry = cache.get(file.filePath);
     if (!entry) continue;
     const d = entry.digest;
-    const { title, titleSource } = resolveTitle(d);
-    // Files holding only mode/permission records are aborted launches, not conversations.
-    if (d.turns === 0 && titleSource === 'none' && d.usage.length === 0) continue;
-    let exists = cwdExists.get(d.cwd);
-    if (exists === undefined) {
-      exists = !!d.cwd && fs.existsSync(d.cwd);
-      cwdExists.set(d.cwd, exists);
-    }
+    if (superseded(file, d)) continue;
+    const job = jobs.get(file.cliSessionId);
+    // A file without a single prompt or reply is an aborted launch, or a stub
+    // Claude Code left while backgrounding a conversation — unless a background
+    // session is running in it right now.
+    if (d.turns === 0 && d.usage.length === 0 && !job?.live) continue;
+    let { title, titleSource } = resolveTitle(d);
+    if (!title && job?.name) ({ title, titleSource } = { title: job.name, titleSource: 'custom' });
+    const cwd = d.cwd || job?.cwd || folderCwd.get(`${file.profileId ?? ''}\0${file.slug}`) || '';
     conversations.push({
       cliSessionId: file.cliSessionId,
       transcriptPath: file.filePath,
-      projectCwd: d.cwd,
+      projectCwd: cwd,
       projectSlug: file.slug,
       profileId: file.profileId,
-      cwdExists: exists,
+      cwdExists: exists(cwd),
       title,
       titleSource,
       firstPrompt: d.firstPrompt ?? d.firstCommand ?? '',
@@ -438,6 +639,31 @@ export async function listClaudeConversations(force = false): Promise<ClaudeConv
       updatedAt: Math.max(d.lastTs, 0) || entry.mtimeMs,
       gitBranch: d.gitBranch,
       model: d.lastModel,
+      ...(d.customTitle ? { customTitle: d.customTitle } : {}),
+      ...optional('continuedFrom', continuedFrom(file.cliSessionId)),
+      ...backgroundFields(job),
+    });
+    listed.add(file.cliSessionId);
+  }
+  // A background session that hasn't written its transcript yet, e.g. a /fork
+  // still waiting for its first prompt.
+  for (const job of jobs.values()) {
+    if (!job.live || listed.has(job.sessionId) || !job.cwd) continue;
+    conversations.push({
+      cliSessionId: job.sessionId,
+      transcriptPath: '',
+      projectCwd: job.cwd,
+      projectSlug: job.cwd.replace(/[^a-zA-Z0-9]/g, '-'),
+      profileId: job.profileId,
+      cwdExists: exists(job.cwd),
+      title: job.name,
+      titleSource: job.name ? 'custom' : 'none',
+      firstPrompt: '',
+      turns: 0,
+      startedAt: job.createdAt,
+      updatedAt: job.updatedAt || job.createdAt,
+      ...optional('continuedFrom', continuedFrom(job.sessionId)),
+      ...backgroundFields(job),
     });
   }
   conversations.sort((a, b) => b.updatedAt - a.updatedAt);

@@ -152,8 +152,7 @@
   background: var(--bg-secondary);
 }
 
-.ssl-pill,
-.sc-pill {
+.ssl-pill {
   background: var(--border-subtle);
 }
 

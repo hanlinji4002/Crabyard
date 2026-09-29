@@ -15,8 +15,10 @@ import { createAppMenu } from './menu';
 import { getProvider, getProviderMeta, getAllProviderMetas, getAllProviders } from './providers/registry';
 import { buildHandoffPrompt } from './providers/resume-handoff';
 import { searchSessions } from './session-deep-search';
-import { findTranscriptPath, conversationPathsForTrash, forgetConversation, getClaudeUsage, listClaudeConversations } from './claude-history';
+import { findTranscriptPath, conversationPathsForTrash, conversationBusy, forgetConversation, getClaudeUsage, listClaudeConversations } from './claude-history';
 import { buildPreviewTree } from './preview-tree';
+import { watchClaudeConfigDir } from './claude-history-watch';
+import { stopBackgroundSession } from './background-sessions';
 import { getConversationChanges } from './conversation-changes';
 import { listSkills, setSkillEnabled } from './skills';
 import { listPlugins, setPluginEnabled } from './plugins';
@@ -140,7 +142,7 @@ export function resetHookWatcher(): void {
 }
 
 export function registerIpcHandlers(): void {
-  ipcMain.handle('pty:create', async (_event, sessionId: string, cwd: string, cliSessionId: string | null, isResume: boolean, extraArgs: string, providerId: ProviderId = 'claude', initialPrompt?: string, systemPrompt?: string, envVars: string = '', configDir?: string) => {
+  ipcMain.handle('pty:create', async (_event, sessionId: string, cwd: string, cliSessionId: string | null, isResume: boolean, extraArgs: string, providerId: ProviderId = 'claude', initialPrompt?: string, systemPrompt?: string, envVars: string = '', configDir?: string, attachShort?: unknown) => {
     const win = BrowserWindow.getAllWindows()[0];
     if (!win) return;
 
@@ -183,7 +185,12 @@ export function registerIpcHandlers(): void {
           w.webContents.send('pty:exit', sessionId, exitCode, signal);
         }
       },
-      configDir
+      configDir,
+      typeof attachShort === 'string' && /^[0-9a-f]{8}$/i.test(attachShort) ? attachShort : undefined,
+      (resolvedId, resolvedShort, reason) => {
+        const w = BrowserWindow.getAllWindows()[0];
+        if (w && !w.isDestroyed()) w.webContents.send('session:conversationResolved', sessionId, resolvedId, resolvedShort, reason ?? null);
+      },
     );
 
     // Validate after spawnPty — Copilot installs per-project hooks there, so
@@ -304,6 +311,8 @@ export function registerIpcHandlers(): void {
   // path and whether it is the auto-managed location.
   ipcMain.handle('profiles:provision', (_event, profileId: string, customPath?: string) => {
     const configDir = provisionProfileDir(profileId, customPath);
+    // Its conversations and /fork sessions show in the sidebar as they appear.
+    watchClaudeConfigDir(configDir);
     return { configDir, managed: !customPath?.trim() };
   });
 
@@ -415,9 +424,20 @@ export function registerIpcHandlers(): void {
     typeof cliSessionId === 'string' ? getConversationChanges(cliSessionId) : null);
   // Deleting a conversation moves its transcript (and sidecar folder) to the
   // system Trash, so it can be restored; only real transcripts are accepted.
+  // Stop a background session (/fork) from its sidebar row; the conversation is kept.
+  ipcMain.handle('claudeHistory:stopBackground', (_event, short: unknown, profileId: unknown) => {
+    if (typeof short !== 'string') return { ok: false, error: 'invalid background session id' };
+    const profile = typeof profileId === 'string'
+      ? (loadState()?.profiles ?? []).find((p) => p.id === profileId && p.providerId === 'claude')
+      : undefined;
+    return stopBackgroundSession(short, profile?.configDir);
+  });
+
   ipcMain.handle('claudeHistory:trash', async (_event, transcriptPath: unknown) => {
     const paths = conversationPathsForTrash(transcriptPath);
     if (!paths) return { ok: false, error: 'Not a Claude Code conversation transcript' };
+    const busy = conversationBusy(paths[0]);
+    if (busy) return { ok: false, reason: busy, error: busy };
     try {
       for (const p of paths) await shell.trashItem(p);
     } catch (err) {

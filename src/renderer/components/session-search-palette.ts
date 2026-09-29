@@ -202,7 +202,7 @@ function renderResults(): void {
     const nameRow = document.createElement('div');
     nameRow.className = 'session-palette-item-name';
     const nameText = document.createElement('span');
-    nameText.textContent = r.sessionName ?? r.derivedName ?? r.cliSessionId.slice(0, 8) + '\u2026';
+    nameText.textContent = appState.getConversationTitle(r.cliSessionId) ?? r.sessionName ?? r.derivedName ?? r.cliSessionId.slice(0, 8) + '\u2026';
     nameRow.appendChild(nameText);
 
     const providerBadge = document.createElement('span');
@@ -252,7 +252,7 @@ function openResult(r: ResolvedResult): void {
       const name = deriveProjectName(r.projectCwd, r.projectSlug);
       project = appState.addProject(name, r.projectCwd);
     }
-    const name = r.sessionName ?? r.derivedName ?? r.cliSessionId.slice(0, 8) + '\u2026';
+    const name = appState.getConversationTitle(r.cliSessionId) ?? r.sessionName ?? r.derivedName ?? r.cliSessionId.slice(0, 8) + '\u2026';
     appState.openCliSession(project.id, r.cliSessionId, name, r.providerId, r.profileId);
   }
   hidePalette();

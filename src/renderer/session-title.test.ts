@@ -163,3 +163,25 @@ describe('applyCliSessionName', () => {
     expect(nameOf(project.id, session.id)).toHaveLength(60);
   });
 });
+
+describe('applyCliSessionName and remembered conversation titles', () => {
+  it('does not replace the custom title of a reopened conversation', () => {
+    const { project, session } = addProjectAndSession();
+    appState.updateSessionCliId(project.id, session.id, 'cli-1');
+    appState.renameSession(project.id, session.id, 'Custom', true);
+    // Reopen it from the sidebar in another project (the first tab stays open there).
+    const other = appState.addProject('Other', '/other');
+    const reopened = appState.openCliSession(other.id, 'cli-1', 'Transcript title')!;
+    expect(reopened.name).toBe('Custom');
+    applyCliSessionName(reopened.id, 'AI generated title', 'cli-1');
+    expect(nameOf(other.id, reopened.id)).toBe('Custom');
+  });
+
+  it('never records an auto title for the sidebar', () => {
+    const { project, session } = addProjectAndSession();
+    appState.updateSessionCliId(project.id, session.id, 'cli-1');
+    applyCliSessionName(session.id, 'AI generated title', 'cli-1');
+    expect(nameOf(project.id, session.id)).toBe('AI generated title');
+    expect(appState.getConversationTitle('cli-1')).toBeUndefined();
+  });
+});

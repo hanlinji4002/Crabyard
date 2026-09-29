@@ -6,7 +6,7 @@ export type { CostData } from '../shared/types';
 
 export interface VibeyardApi {
   pty: {
-    create(sessionId: string, cwd: string, cliSessionId: string | null, isResume: boolean, extraArgs?: string, providerId?: ProviderId, initialPrompt?: string, systemPrompt?: string, envVars?: string, configDir?: string): Promise<void>;
+    create(sessionId: string, cwd: string, cliSessionId: string | null, isResume: boolean, extraArgs?: string, providerId?: ProviderId, initialPrompt?: string, systemPrompt?: string, envVars?: string, configDir?: string, attachShort?: string): Promise<void>;
     createShell(sessionId: string, cwd: string): Promise<void>;
     write(sessionId: string, data: string): void;
     resize(sessionId: string, cols: number, rows: number): void;
@@ -26,6 +26,8 @@ export interface VibeyardApi {
     onClaudeSessionId(callback: (sessionId: string, claudeSessionId: string) => void): () => void;
     onCostData(callback: (sessionId: string, costData: CostData) => void): () => void;
     onSessionName(callback: (sessionId: string, name: string, cliSessionId: string) => void): () => void;
+    /** The conversation a resumed tab actually opened (a background session it followed), when not the one asked for. */
+    onConversationResolved(callback: (sessionId: string, cliSessionId: string, attachShort: string | null, reason: 'handoff' | 'job' | null) => void): () => void;
     resyncStatus(): void;
     onToolFailure(callback: (sessionId: string, data: ToolFailureData) => void): () => void;
     onInspectorEvents(callback: (sessionId: string, events: InspectorEvent[]) => void): () => void;
@@ -124,9 +126,13 @@ export interface VibeyardApi {
     /** Token/cost totals per (date, model, project), de-duplicated across transcripts. */
     usage(force?: boolean): Promise<ClaudeUsageReport>;
     /** Move a conversation's transcript (and its sidecar folder) to the Trash. */
-    trash(transcriptPath: string): Promise<{ ok: boolean; error?: string }>;
+    trash(transcriptPath: string): Promise<{ ok: boolean; error?: string; reason?: 'open' | 'background' | 'recent' }>;
     /** Files a conversation changed: its latest turn and the whole conversation. */
     changes(cliSessionId: string): Promise<ConversationChanges | null>;
+    /** Claude Code created or removed a conversation, or a background session started or ended. */
+    onChanged(callback: () => void): () => void;
+    /** Stop a background session (a /fork) with `claude stop`; its conversation is kept. */
+    stopBackground(short: string, profileId?: string): Promise<{ ok: boolean; error?: string }>;
     /** Where a conversation's transcript is, or null when it can't be found. */
     transcriptPath(cliSessionId: string): Promise<string | null>;
   };
@@ -165,8 +171,8 @@ function onChannel(channel: string, callback: (...args: unknown[]) => void): () 
 
 const api: VibeyardApi = {
   pty: {
-    create: (sessionId, cwd, cliSessionId, isResume, extraArgs, providerId, initialPrompt, systemPrompt, envVars, configDir) =>
-      ipcRenderer.invoke('pty:create', sessionId, cwd, cliSessionId, isResume, extraArgs || '', providerId || 'claude', initialPrompt, systemPrompt, envVars || '', configDir),
+    create: (sessionId, cwd, cliSessionId, isResume, extraArgs, providerId, initialPrompt, systemPrompt, envVars, configDir, attachShort) =>
+      ipcRenderer.invoke('pty:create', sessionId, cwd, cliSessionId, isResume, extraArgs || '', providerId || 'claude', initialPrompt, systemPrompt, envVars || '', configDir, attachShort),
     createShell: (sessionId, cwd) =>
       ipcRenderer.invoke('pty:createShell', sessionId, cwd),
     write: (sessionId, data) =>
@@ -198,6 +204,9 @@ const api: VibeyardApi = {
     onCliSessionId: (callback) =>
       onChannel('session:cliSessionId', (sessionId, cliSessionId) =>
         callback(sessionId as string, cliSessionId as string)),
+    onConversationResolved: (callback) =>
+      onChannel('session:conversationResolved', (sessionId, cliSessionId, attachShort, reason) =>
+        callback(sessionId as string, cliSessionId as string, (attachShort as string | null) ?? null, (reason as 'handoff' | 'job' | null) ?? null)),
     onClaudeSessionId: (callback) =>
       onChannel('session:claudeSessionId', (sessionId, claudeSessionId) =>
         callback(sessionId as string, claudeSessionId as string)),
@@ -302,6 +311,8 @@ const api: VibeyardApi = {
     trash: (transcriptPath) => ipcRenderer.invoke('claudeHistory:trash', transcriptPath),
     changes: (cliSessionId) => ipcRenderer.invoke('claudeHistory:changes', cliSessionId),
     transcriptPath: (cliSessionId) => ipcRenderer.invoke('claudeHistory:transcriptPath', cliSessionId),
+    onChanged: (callback) => onChannel('claudeHistory:changed', () => callback()),
+    stopBackground: (short, profileId) => ipcRenderer.invoke('claudeHistory:stopBackground', short, profileId),
   },
   settings: {
     onWarning: (cb) => onChannel('settings:warning', (data) => cb(data as SettingsWarningData)),

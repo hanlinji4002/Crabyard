@@ -2,13 +2,20 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { spawnSync } from 'child_process';
+import { isWin } from './platform';
+import { _resetForTesting as resetJobs } from './claude-jobs';
 
-vi.mock('./store', () => ({ loadState: () => ({ profiles: [] }) }));
+const store = vi.hoisted(() => ({ state: { profiles: [] as unknown[], projects: [] as unknown[] } }));
+vi.mock('./store', () => ({ loadState: () => store.state }));
 
 import {
   _resetForTesting,
   applyTranscriptLine,
   cleanUserText,
+  conversationBusy,
+  readContinuedIn,
+  transcriptHasMessages,
   conversationPathsForTrash,
   createDigest,
   forgetConversation,
@@ -224,6 +231,156 @@ describe('listClaudeConversations / getClaudeUsage', () => {
     const { rows } = await getClaudeUsage();
     // B still carries its copy of msg-1 (50) plus msg-2 (4); A's subagent (7) is gone.
     expect(rows.reduce((n, r) => n + r.outputTokens, 0)).toBe(50 + 4);
+  });
+
+  it('hides title-only stubs and files a transcript without a cwd under its folder', async () => {
+    const UUID_D = '44444444-4444-4444-8444-444444444444';
+    const UUID_E = '55555555-5555-4555-8555-555555555555';
+    const UUID_F = '66666666-6666-4666-8666-666666666666';
+    // What Claude Code leaves behind when it backgrounds a conversation: titles only.
+    write(`slug/${UUID_D}.jsonl`, [
+      { type: 'ai-title', aiTitle: 'Handed off', sessionId: UUID_D },
+      { type: 'agent-name', agentName: 'Handed off', sessionId: UUID_D },
+    ]);
+    write(`other/${UUID_E}.jsonl`, [user('no cwd on this line', { timestamp: '2026-09-19T10:00:00.000Z' })]);
+    write(`other/${UUID_F}.jsonl`, [user('here', { cwd: workDir, timestamp: '2026-09-18T10:00:00.000Z' })]);
+    const { conversations } = await listClaudeConversations(true);
+    expect(conversations.map((c) => c.cliSessionId)).not.toContain(UUID_D);
+    expect(conversations.find((c) => c.cliSessionId === UUID_E)).toMatchObject({ projectCwd: workDir, cwdExists: true });
+  });
+
+  describe('background sessions', () => {
+    const FORK = '77777777-7777-4777-8777-777777777777';
+    const WAITING = '88888888-8888-4888-8888-888888888888';
+    const procStart = (pid: number) => isWin ? '' : spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], { env: { ...process.env, TZ: 'UTC', LC_ALL: 'C' }, encoding: 'utf8' }).stdout.trim();
+
+    function job(short: string, state: Record<string, unknown>): void {
+      fs.mkdirSync(path.join(tmp, 'jobs', short), { recursive: true });
+      fs.writeFileSync(path.join(tmp, 'jobs', short, 'state.json'), JSON.stringify(state));
+    }
+
+    beforeEach(() => {
+      resetJobs();
+      // A /fork of A that ran and finished...
+      job('77777777', { state: 'done', sessionId: FORK, name: 'Titled chat ⑂', cwd: workDir, forkParentSessionId: UUID_A, createdAt: '2026-09-22T09:00:00.000Z', updatedAt: '2026-09-22T09:30:00.000Z' });
+      write(`slug/${FORK}.jsonl`, [
+        { type: 'ai-title', aiTitle: 'Titled chat ⑂', sessionId: FORK },
+        user('go on', { cwd: workDir, timestamp: '2026-09-22T09:10:00.000Z' }),
+      ]);
+      // ...and one still waiting for its first prompt, with nothing written yet.
+      job('88888888', { state: 'working', sessionId: WAITING, name: 'Titled chat ⑂ ⑂', cwd: workDir, forkParentSessionId: FORK, createdAt: '2026-09-22T10:00:00.000Z', updatedAt: '2026-09-22T10:00:01.000Z' });
+      fs.mkdirSync(path.join(tmp, 'daemon'), { recursive: true });
+      fs.writeFileSync(path.join(tmp, 'daemon', 'roster.json'), JSON.stringify({
+        proto: 1,
+        supervisorPid: process.pid,
+        workers: { 88888888: { pid: process.pid, procStart: procStart(process.pid), sessionId: WAITING } },
+      }));
+    });
+
+    it('marks forks with their parent and lists a live one before it has a transcript', async () => {
+      const { conversations } = await listClaudeConversations(true);
+      expect(conversations.map((c) => c.cliSessionId)).toEqual([WAITING, FORK, UUID_B, UUID_A]);
+      expect(conversations[0]).toMatchObject({
+        transcriptPath: '',
+        title: 'Titled chat ⑂ ⑂',
+        projectCwd: workDir,
+        forkOf: FORK,
+        background: { short: '88888888', live: true, state: 'working' },
+      });
+      expect(conversations[1]).toMatchObject({ title: 'Titled chat ⑂', forkOf: UUID_A, background: { short: '77777777', live: false, state: 'done' } });
+      expect(conversations[2].background).toBeUndefined();
+    });
+
+    it('keeps a live background session whose transcript is still a stub', async () => {
+      write(`slug/${WAITING}.jsonl`, [{ type: 'ai-title', aiTitle: 'Titled chat ⑂ ⑂', sessionId: WAITING }]);
+      const { conversations } = await listClaudeConversations(true);
+      const waiting = conversations.find((c) => c.cliSessionId === WAITING)!;
+      expect(waiting).toMatchObject({ transcriptPath: path.join(root, 'slug', `${WAITING}.jsonl`), projectCwd: workDir, background: { live: true } });
+      expect(conversations.filter((c) => c.cliSessionId === WAITING)).toHaveLength(1);
+    });
+
+    it('lists no row for a shell command run as a background job', async () => {
+      const EXEC = '99999999-9999-4999-8999-999999999999';
+      job('99999999', { state: 'working', template: 'exec', sessionId: EXEC, cwd: workDir, updatedAt: '2026-09-22T11:00:00.000Z' });
+      const roster = JSON.parse(fs.readFileSync(path.join(tmp, 'daemon', 'roster.json'), 'utf8'));
+      roster.workers['99999999'] = { pid: process.pid, procStart: procStart(process.pid), sessionId: EXEC };
+      fs.writeFileSync(path.join(tmp, 'daemon', 'roster.json'), JSON.stringify(roster));
+      const { conversations } = await listClaudeConversations(true);
+      expect(conversations.map((c) => c.cliSessionId)).not.toContain(EXEC);
+    });
+
+    it('refuses to trash a live background session, an open one or one written a moment ago', () => {
+      const a = path.join(root, 'slug', `${UUID_A}.jsonl`);
+      const waiting = write(`slug/${WAITING}.jsonl`, [user('x', { cwd: workDir })]);
+      const old = new Date(Date.now() - 5 * 60_000);
+      fs.utimesSync(a, old, old);
+      fs.utimesSync(waiting, old, old);
+      expect(conversationBusy(a)).toBeNull();
+      expect(conversationBusy(waiting)).toBe('background');
+      store.state = { profiles: [], projects: [{ sessions: [{ cliSessionId: UUID_A }] }] };
+      try {
+        expect(conversationBusy(a)).toBe('open');
+      } finally {
+        store.state = { profiles: [], projects: [] };
+      }
+      fs.appendFileSync(a, '\n');
+      expect(conversationBusy(a)).toBe('recent');
+    });
+  });
+
+  describe('hand-offs to a background session', () => {
+    const HANDED = '12121212-1212-4212-8212-121212121212';
+    const CONT = '34343434-3434-4343-8343-343434343434';
+    const handoff = { type: 'continued-in', timestamp: '2026-09-22T12:00:00.000Z', sessionId: HANDED, continuedInSessionId: CONT };
+    const finished = (extra: Record<string, unknown> = {}) => assistant('msg-f', 'req-f', { input_tokens: 1, output_tokens: 1 }, { cwd: workDir, parentUuid: 'p', message: { id: 'msg-f', model: 'claude-opus-5', role: 'assistant', content: [], stop_reason: 'end_turn', usage: { output_tokens: 1 } }, ...extra });
+
+    it('leaves out a conversation that goes on in a background session with content', async () => {
+      write(`slug/${HANDED}.jsonl`, [user('start', { cwd: workDir, parentUuid: null }), handoff]);
+      write(`slug/${CONT}.jsonl`, [user('start', { cwd: workDir, parentUuid: null })]);
+      const { conversations } = await listClaudeConversations(true);
+      expect(conversations.map((c) => c.cliSessionId)).toContain(CONT);
+      expect(conversations.map((c) => c.cliSessionId)).not.toContain(HANDED);
+      expect(readContinuedIn(path.join(root, 'slug', `${HANDED}.jsonl`))).toBe(CONT);
+    });
+
+    it('keeps it when the target never got going or it went on here afterwards', async () => {
+      write(`slug/${HANDED}.jsonl`, [user('start', { cwd: workDir, parentUuid: null }), handoff]);
+      write(`slug/${CONT}.jsonl`, [{ type: 'ai-title', aiTitle: 'X', sessionId: CONT }]); // titles only
+      let { conversations } = await listClaudeConversations(true);
+      expect(conversations.map((c) => c.cliSessionId)).toContain(HANDED);
+
+      write(`slug/${CONT}.jsonl`, [user('start', { cwd: workDir, parentUuid: null })]);
+      write(`slug/${HANDED}.jsonl`, [user('start', { cwd: workDir, parentUuid: null }), handoff, finished()]);
+      ({ conversations } = await listClaudeConversations(true));
+      expect(conversations.map((c) => c.cliSessionId)).toContain(HANDED);
+      expect(readContinuedIn(path.join(root, 'slug', `${HANDED}.jsonl`))).toBeUndefined();
+    });
+
+    it('does not count an unfinished reply, an API error or a meta line as going on', () => {
+      const file = write(`slug/${HANDED}.jsonl`, [
+        user('start', { cwd: workDir }),
+        handoff,
+        finished({ isApiErrorMessage: true }),
+        user('<local-command-stdout>ok</local-command-stdout>', { cwd: workDir }),
+        user('reminder', { cwd: workDir, isMeta: true }),
+        { type: 'cost-state', sessionId: HANDED },
+      ]);
+      expect(readContinuedIn(file)).toBe(CONT);
+    });
+
+    it('says which conversations a listed one carries on, and its CLI custom title', async () => {
+      write(`slug/${HANDED}.jsonl`, [user('start', { cwd: workDir, parentUuid: null }), handoff]);
+      write(`slug/${CONT}.jsonl`, [{ type: 'custom-title', customTitle: 'Renamed in CLI', sessionId: CONT }, user('start', { cwd: workDir, parentUuid: null })]);
+      const { conversations } = await listClaudeConversations(true);
+      expect(conversations.find((c) => c.cliSessionId === CONT)).toMatchObject({ continuedFrom: [HANDED], customTitle: 'Renamed in CLI' });
+      expect(conversations.find((c) => c.cliSessionId === UUID_A)!.continuedFrom).toBeUndefined();
+    });
+
+    it('tells a transcript with messages from one with titles only', () => {
+      expect(transcriptHasMessages(write(`slug/${CONT}.jsonl`, [{ type: 'ai-title', aiTitle: 'X' }]))).toBe(false);
+      expect(transcriptHasMessages(write(`slug/${CONT}.jsonl`, [{ type: 'ai-title', aiTitle: 'X' }, user('hi', { parentUuid: null })]))).toBe(true);
+      expect(transcriptHasMessages(path.join(root, 'slug', 'missing.jsonl'))).toBe(false);
+    });
   });
 
   it('re-reads a transcript only after it changes', async () => {

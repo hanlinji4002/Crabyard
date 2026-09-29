@@ -22,8 +22,17 @@ import {
   buildTeamSession,
 } from './state/session-factory.js';
 import { NavHistory } from './state/nav-history.js';
+import type { ClaudeConversation } from '../shared/types.js';
 import { defaultSessionName } from './state/session-naming.js';
 import { ensureProjectDefaults, hydrateLoadedState, serializeForSave } from './state/persistence.js';
+import {
+  getConversationTitle as getConversationTitlePure,
+  getConversationTitleEntry,
+  reconcileConversationTitles,
+  removeConversationTitle,
+  setConversationTitle,
+  titleFor,
+} from './state/conversation-titles.js';
 import {
   applyMemberPatch,
   buildNewMember,
@@ -60,6 +69,8 @@ import {
 export type { SessionRecord, ProjectRecord, Preferences, PersistedState, ArchivedSession } from '../shared/types.js';
 
 export const MAX_SESSION_NAME_LENGTH = 60;
+/** How long a tab remembers the conversation it just left, to tell a bounce back from a /clear. */
+const CLI_ID_BOUNCE_MS = 20_000;
 export const MAX_PROJECT_NAME_LENGTH = 80;
 
 declare global {
@@ -84,6 +95,7 @@ type EventType =
   | 'cli-session-cleared'
   | 'team-changed'
   | 'profiles-changed'
+  | 'conversation-titles-changed'
   | 'state-loaded';
 
 type EventCallback = (data?: unknown) => void;
@@ -106,6 +118,8 @@ class AppState {
   private state: PersistedState = { version: 1, projects: [], activeProjectId: null, preferences: { ...defaultPreferences } };
   private listeners = new Map<EventType, Set<EventCallback>>();
   private nav = new NavHistory();
+  /** Per tab: the CLI session id it last moved away from, when, and the tab's name then. */
+  private leftCliIds = new Map<string, { id: string; at: number; name: string; userRenamed?: boolean }>();
 
   private pushNav(sessionId: string | null | undefined): void {
     this.nav.push(sessionId);
@@ -594,6 +608,11 @@ class AppState {
         this.archiveSession(project, session);
       }
     }
+    // A conversation the user named but never started (no transcript) is gone
+    // for good with its tab; so is its name.
+    if (session?.cliSessionId && getConversationTitlePure(this.state, session.cliSessionId) && !this.isArchivable(session, project)) {
+      removeConversationTitle(this.state, session.cliSessionId);
+    }
 
     const closingIndex = project.sessions.findIndex((s) => s.id === sessionId);
     project.sessions = project.sessions.filter((s) => s.id !== sessionId);
@@ -676,7 +695,7 @@ class AppState {
     const existing = findCliSessionTab(project, archived.cliSessionId);
     if (existing) return this.activateExistingSession(project, existing);
 
-    const session = buildResumedSession(archived);
+    const session = this.withConversationTitle(buildResumedSession(archived));
     attachSessionToProject(project, session, { addToSwarm: true });
     this.commitNewSession(projectId, session);
     return session;
@@ -720,7 +739,7 @@ class AppState {
     // Pin the profile the transcript was found under (provider-matched) so resume
     // reopens against the right config dir; ignore a stale/cross-provider id.
     const validProfileId = profileId && this.profiles.some((p) => p.id === profileId && p.providerId === providerId) ? profileId : undefined;
-    const session = buildResumedSessionFromCliId(cliSessionId, name, providerId, validProfileId);
+    const session = this.withConversationTitle(buildResumedSessionFromCliId(cliSessionId, name, providerId, validProfileId));
     attachSessionToProject(project, session, { addToSwarm: true });
     this.commitNewSession(projectId, session);
     return session;
@@ -794,9 +813,42 @@ class AppState {
     // same id; each repeat costs a persist plus a `session-changed` fan-out.
     if (session.cliSessionId === cliSessionId) return;
 
+    // Back to the conversation this tab left moments ago: some other Claude
+    // process reported under the tab's id for a while (a nested `claude` run by
+    // a tool, a background session from an older daemon) and the tab's own CLI
+    // took over again. That is no /clear: rebind without archiving or renaming.
+    const left = this.leftCliIds.get(sessionId);
+    const bounce = !!left && left.id === cliSessionId && Date.now() - left.at < CLI_ID_BOUNCE_MS;
+    if (session.cliSessionId) {
+      this.leftCliIds.set(sessionId, { id: session.cliSessionId, at: Date.now(), name: session.name, userRenamed: session.userRenamed });
+    }
+    if (bounce) {
+      const transient = session.cliSessionId;
+      // A name the user typed while the foreign id held the tab (set after the
+      // tab moved to it) was meant for this tab.
+      const typedEntry = transient ? getConversationTitleEntry(this.state, transient) : undefined;
+      const typed = !!session.userRenamed && !!typedEntry && typedEntry.title === session.name && typedEntry.at >= left.at;
+      let titlesChanged = false;
+      session.cliSessionId = cliSessionId;
+      if (typed) {
+        removeConversationTitle(this.state, transient!);
+        titlesChanged = setConversationTitle(this.state, cliSessionId, session.name) || true;
+      } else {
+        // The name it had on this conversation, not the one it picked up meanwhile.
+        session.name = left.name;
+        session.userRenamed = left.userRenamed;
+        this.withConversationTitle(session);
+      }
+      this.persist();
+      this.emit('session-changed');
+      if (titlesChanged) this.emit('conversation-titles-changed');
+      return;
+    }
+
     // If session already had a different cliSessionId (e.g., /clear was used),
     // archive the previous session (only if its transcript exists) and reset the tab name.
     // isArchivable is checked while session.cliSessionId still holds the OLD id.
+    let titlesChanged = false;
     if (session.cliSessionId) {
       if (this.isArchivable(session, project)) {
         this.archiveSession(project, session);
@@ -804,11 +856,100 @@ class AppState {
       session.name = defaultSessionName(project);
       session.userRenamed = false;
       this.emit('cli-session-cleared', { sessionId });
+    } else if (session.userRenamed) {
+      // Renamed before the CLI reported its id: the name belongs to this conversation.
+      titlesChanged = setConversationTitle(this.state, cliSessionId, session.name);
     }
 
     session.cliSessionId = cliSessionId;
+    // Switched (e.g. /resume inside the CLI) to a conversation the user named earlier.
+    this.withConversationTitle(session);
     this.persist();
     this.emit('session-changed');
+    if (titlesChanged) this.emit('conversation-titles-changed');
+  }
+
+  /**
+   * The tab opened a different conversation than it asked for, or attached to
+   * it rather than resuming it. Nothing is archived either way.
+   * - 'handoff': the same conversation carried on in a background session (←
+   *   on an empty prompt). The tab keeps its name, and a name the user gave it
+   *   goes along unless the new id already has one.
+   * - 'job': the background job the tab is attached to moved on to another
+   *   conversation (/clear, /resume inside it). The tab takes that
+   *   conversation's name, or starts over with a default one.
+   */
+  followConversation(sessionId: string, cliSessionId: string, attachShort: string | null, reason?: 'handoff' | 'job' | null): void {
+    const found = this.findSessionWithProject(sessionId);
+    if (!found) return;
+    const { project, session } = found;
+    if (session.cliSessionId === cliSessionId && (session.attachShort ?? null) === attachShort) return;
+    let titlesChanged = false;
+    if (session.cliSessionId !== cliSessionId) {
+      if (reason === 'job') {
+        session.name = defaultSessionName(project);
+        session.userRenamed = false;
+      } else if (session.userRenamed && !getConversationTitlePure(this.state, cliSessionId)) {
+        titlesChanged = setConversationTitle(this.state, cliSessionId, session.name);
+      }
+    }
+    session.cliSessionId = cliSessionId;
+    if (attachShort) session.attachShort = attachShort;
+    else delete session.attachShort;
+    this.withConversationTitle(session);
+    this.persist();
+    this.emit('session-changed');
+    if (titlesChanged) this.emit('conversation-titles-changed');
+  }
+
+  /**
+   * Line the stored names up with a fresh conversation list (see
+   * reconcileConversationTitles). A tab whose conversation the user renamed in
+   * the CLI takes that name. Emits nothing: the caller renders.
+   */
+  reconcileConversationTitles(list: ClaudeConversation[]): boolean {
+    const openIds = new Set<string>();
+    for (const project of this.state.projects) {
+      for (const session of project.sessions) if (session.cliSessionId) openIds.add(session.cliSessionId);
+    }
+    const { changed, renamedInCli } = reconcileConversationTitles(this.state, list, openIds);
+    for (const { cliSessionId, title } of renamedInCli) {
+      for (const project of this.state.projects) {
+        for (const session of project.sessions) {
+          if (session.cliSessionId !== cliSessionId) continue;
+          session.name = title.slice(0, MAX_SESSION_NAME_LENGTH);
+          session.userRenamed = false;
+        }
+      }
+    }
+    if (changed) this.persist();
+    if (renamedInCli.length) this.emit('session-changed');
+    return changed;
+  }
+
+  /** The name the user gave a listed conversation, as the sidebar shows it. */
+  conversationTitleFor(conv: ClaudeConversation): string | undefined {
+    return titleFor(this.state, conv);
+  }
+
+  /**
+   * Hand a tab's name back to Claude Code: forget the name the user gave its
+   * conversation (and the conversations carrying it on, `continuationIds`),
+   * show `fallbackName` until the CLI's own title comes again.
+   */
+  clearConversationName(projectId: string, sessionId: string, fallbackName?: string, continuationIds: string[] = []): void {
+    const project = this.state.projects.find((p) => p.id === projectId);
+    const session = project?.sessions.find((s) => s.id === sessionId);
+    if (!project || !session) return;
+    let titlesChanged = false;
+    for (const id of [session.cliSessionId, ...continuationIds]) {
+      if (id && removeConversationTitle(this.state, id)) titlesChanged = true;
+    }
+    session.userRenamed = false;
+    session.name = (fallbackName || defaultSessionName(project)).slice(0, MAX_SESSION_NAME_LENGTH);
+    this.persist();
+    this.emit('session-changed');
+    if (titlesChanged) this.emit('conversation-titles-changed');
   }
 
   /** @deprecated Use updateSessionCliId */
@@ -845,6 +986,9 @@ class AppState {
     if (!session) return;
     session.name = name.slice(0, MAX_SESSION_NAME_LENGTH);
     if (userRenamed) session.userRenamed = true;
+    // Only a name the user typed is remembered for the conversation; CLI auto
+    // titles already live in the transcript the sidebar reads.
+    const titlesChanged = !!userRenamed && !!session.cliSessionId && setConversationTitle(this.state, session.cliSessionId, session.name);
     // Keep history entry in sync if this session was resumed from history
     if (session.cliSessionId && project.sessionHistory) {
       const historyEntry = project.sessionHistory.find((a) => a.cliSessionId === session.cliSessionId);
@@ -855,6 +999,32 @@ class AppState {
     }
     this.persist();
     this.emit('session-changed');
+    if (titlesChanged) this.emit('conversation-titles-changed');
+  }
+
+  /** The name the user gave this conversation in Crabyard, if any. */
+  getConversationTitle(cliSessionId: string | null | undefined): string | undefined {
+    return getConversationTitlePure(this.state, cliSessionId);
+  }
+
+  /** Drop a remembered name, e.g. once the conversation's transcript went to the Trash. */
+  forgetConversationTitle(cliSessionId: string): void {
+    if (!removeConversationTitle(this.state, cliSessionId)) return;
+    this.persist();
+    this.emit('conversation-titles-changed');
+  }
+
+  /**
+   * Give a tab the name the user chose for its conversation, marked sticky so
+   * the CLI's statusLine title (applyCliSessionName) can't replace it.
+   */
+  private withConversationTitle(session: SessionRecord): SessionRecord {
+    const title = this.getConversationTitle(session.cliSessionId);
+    if (title !== undefined) {
+      session.name = title;
+      session.userRenamed = true;
+    }
+    return session;
   }
 
   toggleSplit(): void {
@@ -958,6 +1128,7 @@ export function _resetForTesting(): void {
   (appState as any)['state'] = { version: 1, projects: [], activeProjectId: null, preferences: { ...defaultPreferences } };
   (appState as any)['listeners'] = new Map();
   (appState as any)['nav'] = new NavHistory();
+  (appState as any)['leftCliIds'] = new Map();
 }
 
 export const appState = new AppState();

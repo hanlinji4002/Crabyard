@@ -30,6 +30,7 @@ vi.mock('./hook-commands', () => ({
   captureSessionIdCmd: vi.fn((_v: string, marker: string) => `capture-sessionid .sessionid ${marker}`),
   captureToolFailureCmd: vi.fn((_v: string, marker: string) => `capture-toolfailure .toolfailure ${marker}`),
   wrapPythonHookCmd: vi.fn((_name: string, _code: string, marker: string) => `capture-event .events ${marker}`),
+  PY_SKIP_BACKGROUND_SESSION: "if os.environ.get('CLAUDE_JOB_DIR'):\n    sys.exit(0)",
 }));
 
 import * as fs from 'fs';

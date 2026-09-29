@@ -824,3 +824,36 @@ describe('openCliSession()', () => {
   });
 });
 
+
+describe('reopening a conversation the user named', () => {
+  function nameConversation(cliId: string, title: string) {
+    const project = appState.activeProject ?? addProject();
+    const session = appState.addSession(project.id, 'Tmp')!;
+    activateSession(project.id, session.id, cliId);
+    appState.renameSession(project.id, session.id, title, true);
+    appState.removeSession(project.id, session.id);
+    return project;
+  }
+
+  it('openCliSession names the tab with the custom title, sticky', () => {
+    const project = nameConversation('cli-named', '行程整理');
+    const session = appState.openCliSession(project.id, 'cli-named', '周末旅行计划 ⑂')!;
+    expect(session.name).toBe('行程整理');
+    expect(session.userRenamed).toBe(true);
+  });
+
+  it('openCliSession keeps the passed name when there is no custom title', () => {
+    const project = addProject();
+    const session = appState.openCliSession(project.id, 'cli-plain', 'Transcript title')!;
+    expect(session.name).toBe('Transcript title');
+    expect(session.userRenamed).toBeUndefined();
+  });
+
+  it('resumeFromHistory names the tab with the custom title, sticky', () => {
+    const project = nameConversation('cli-hist', 'Mine');
+    const entry = appState.getSessionHistory(project.id).find((a) => a.cliSessionId === 'cli-hist')!;
+    const session = appState.resumeFromHistory(project.id, entry.id)!;
+    expect(session.name).toBe('Mine');
+    expect(session.userRenamed).toBe(true);
+  });
+});

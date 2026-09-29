@@ -60,11 +60,16 @@ export function getStatusLineScriptPath(): string {
  * and breaking mouse selection. `.cost` is exempt: its payload genuinely changes
  * on nearly every render, and it lands on a persist-only path with no re-render.
  *
- * It also prints one line back to Claude Code — a claude-hud style context
- * bar (`Context ████░░░░░░ 36% (356.1k / 1M)`) that Claude renders under its
- * prompt, so the context reading lives inside each conversation. Written as
- * UTF-8 bytes (the bar glyphs would crash a non-UTF-8 stdout) and fully
+ * It also prints one line back to Claude Code — a claude-hud style line with
+ * the model, the effort level and a context bar
+ * (`[Opus 5.5] ◉ max │ Context ████░░░░░░ 36% (356.1k / 1M)`) that Claude
+ * renders under its prompt, so these readings live inside each conversation.
+ * Written as UTF-8 bytes (the glyphs would crash a non-UTF-8 stdout) and fully
  * guarded: a bad payload drops the line, never the status files below.
+ *
+ * A background session Claude Code runs in its daemon prints the line too, but
+ * writes no status files: see PY_SKIP_BACKGROUND_SESSION in hook-commands.ts
+ * (repeated here, because hook-commands imports this module).
  *
  * Installed as a real `.py` file on every platform and invoked by path, never
  * inlined into the shell command — see the module docstring in
@@ -105,13 +110,39 @@ def hud_line(c):
     if size:
         line+=' \\033[2m('+hud_tokens(used)+' / '+hud_tokens(size)+')\\033[0m'
     return line
+HUD_EFFORT={'low':u'\\u25cb','medium':u'\\u25d0','high':u'\\u25cf','xhigh':u'\\u25c9','max':u'\\u25c9'}
+def hud_head(d):
+    parts=[]
+    m=d.get('model')
+    name=str(m.get('display_name') or '').strip() if isinstance(m,dict) else ''
+    # The context size shows in the bar already: 'Opus 5.5 (1M context)' -> 'Opus 5.5'.
+    if name.endswith(' context)') and ' (' in name:
+        name=name[:name.rindex(' (')]
+    if name:
+        parts.append('\\033[36m['+name+']\\033[0m')
+    e=d.get('effort')
+    level=str(e.get('level') or '').strip() if isinstance(e,dict) else ''
+    if level:
+        parts.append('\\033[35m'+HUD_EFFORT.get(level,u'\\u25d0')+' '+level+'\\033[0m')
+    t=d.get('thinking')
+    if isinstance(t,dict) and t.get('enabled') is False:
+        parts.append('\\033[2mthinking off\\033[0m')
+    return ' '.join(parts)
 try:
+    segs=[]
+    head=hud_head(d)
+    if head:
+        segs.append(head)
     hc=d.get('context_window')
     if isinstance(hc,dict) and hc:
-        sys.stdout.buffer.write((hud_line(hc)+'\\n').encode('utf-8'))
+        segs.append(hud_line(hc))
+    if segs:
+        sys.stdout.buffer.write((' \\033[2m\\u2502\\033[0m '.join(segs)+'\\n').encode('utf-8'))
         sys.stdout.flush()
 except Exception:
     pass
+if os.environ.get('CLAUDE_JOB_DIR') or os.environ.get('CLAUDE_CODE_SESSION_KIND','') in ('bg','daemon','daemon-worker'):
+    sys.exit(0)
 status_dir=${JSON.stringify(statusDir)}
 cost=d.get('cost',{})
 ctx=d.get('context_window',{})

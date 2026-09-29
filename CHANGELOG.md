@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Features
+
+- A ∑ button on each Claude tab, left of ×, opens that conversation's typeset view
+- The statusLine HUD leads with the model and effort level: `[Opus 5.5] ◉ max │ Context …`
+- /fork and other Claude Code background sessions show in the sidebar ("running in the background", "forked from …"), open with `claude attach` while they run, and can be stopped from their row (`claude stop`; the conversation is kept)
+- Tab renames show on the conversation's sidebar row and survive closing the tab and restarting; a later `/rename` in the CLI takes over, and an empty rename hands naming back to Claude Code
+- The sidebar refreshes as soon as a conversation or background session appears or ends
+
+### Fixes
+
+- A reopened conversation keeps the effort it last ran at, read from its transcript, instead of the new-session default
+- Background sessions Claude Code runs in its daemon no longer report as the tab that started the daemon (its conversation id flip-flopped and its name was reset)
+- A conversation handed off to a background session (← on an empty prompt) reopens where it went on, not as the stale copy
+- Moving a conversation to the Trash is refused while a tab has it open, a background session runs it or it was just written
+- Restart Session resumes the tab's current conversation
+- An instance started with `--user-data-dir` no longer shares the installed app's profile
+
+### Changes
+
+- Removed the session switches under each Claude pane (model, effort, permission mode, Ultracode); the typeset view moved to the tab
+
 ## [0.4.0] - 2026-09-25
 
 First Crabyard release — a Claude Code workbench built on Vibeyard 0.3.8.

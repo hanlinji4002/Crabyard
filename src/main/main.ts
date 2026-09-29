@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, nativeTheme, powerMonitor, shell } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { pathToFileURL } from 'url';
 import { registerIpcHandlers, resetHookWatcher } from './ipc-handlers';
 import { killAllPtys } from './pty-manager';
@@ -16,11 +17,13 @@ import { isMac } from './platform';
 import { isCloseConfirmed, setCloseConfirmed } from './close-state';
 import { isHttpUrl } from '../shared/url';
 import { windowBackground } from './window-theme';
+import { startClaudeHistoryWatch } from './claude-history-watch';
 
 // Crabyard used to be called myClaudeTUI: keep its settings folder, so the
 // layout and toggles saved in the window's localStorage survive the rename.
+// An explicit --user-data-dir (a second, isolated instance) wins.
 const legacyUserData = path.join(app.getPath('appData'), 'myClaudeTUI');
-if (fs.existsSync(legacyUserData)) app.setPath('userData', legacyUserData);
+if (!app.commandLine.hasSwitch('user-data-dir') && fs.existsSync(legacyUserData)) app.setPath('userData', legacyUserData);
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -127,6 +130,11 @@ app.whenReady().then(async () => {
   const state = loadState();
   createAppMenu(state.preferences?.debugMode ?? false);
   createWindow();
+  // New conversations and background sessions (/fork) show in the sidebar right away.
+  startClaudeHistoryWatch([
+    path.join(os.homedir(), '.claude'),
+    ...(state.profiles ?? []).filter((p) => p.providerId === 'claude').map((p) => p.configDir),
+  ]);
 
   // Warn if Python is missing on Windows (hooks depend on it)
   const pythonWarning = checkPythonAvailable();

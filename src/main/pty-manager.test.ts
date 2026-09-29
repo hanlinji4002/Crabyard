@@ -40,10 +40,13 @@ vi.mock('./providers/nvm', () => ({
   findBinaryInNvm: vi.fn(() => null),
 }));
 
+const { mockLiveBackgroundJob } = vi.hoisted(() => ({ mockLiveBackgroundJob: vi.fn((): string | null => null) }));
+vi.mock('./claude-jobs', () => ({ liveBackgroundJob: mockLiveBackgroundJob, listBackgroundJobs: vi.fn(() => []), backgroundJob: vi.fn(() => null) }));
+
 import * as fs from 'fs';
 import * as child_process from 'child_process';
 import { spawnPty, writePty, resizePty, killPty, getPtyCwd, getRegistryPath, getFullPath, resetPathCache, resolveWindowsShell, withUtf8Locale, withProxyEnv, parseSystemProxy } from './pty-manager';
-import { initProviders } from './providers/registry';
+import { initProviders, getProvider } from './providers/registry';
 
 const mockExistsSync = vi.mocked(fs.existsSync);
 const mockStatSync = vi.mocked(fs.statSync);
@@ -108,6 +111,7 @@ describe('spawnPty', () => {
 
     spawnPty('s1', '/project', 'claude-123', true, '', 'claude', undefined, undefined, '', vi.fn(), vi.fn());
 
+    // No transcript to say what it last ran at: the defaults.
     if (isWin) {
       expect(mockSpawn).toHaveBeenCalledWith(
         'cmd.exe',
@@ -120,6 +124,55 @@ describe('spawnPty', () => {
         ['-r', 'claude-123', '--permission-mode', 'bypassPermissions', '--effort', 'xhigh'],
         expect.any(Object),
       );
+    }
+  });
+
+  it('resumes at the effort the transcript says the conversation last ran at', () => {
+    const proc = createMockPtyProcess();
+    mockSpawn.mockReturnValue(proc);
+    const lastRun = vi.spyOn(getProvider('claude'), 'lastConversationEffort').mockReturnValue('max');
+    try {
+      spawnPty('s1', '/project', 'claude-123', true, '--effort high', 'claude', undefined, undefined, '', vi.fn(), vi.fn());
+      const argv = mockSpawn.mock.calls[0][1] as string[];
+      expect(argv.slice(argv.indexOf('-r'))).toEqual(['-r', 'claude-123', '--permission-mode', 'bypassPermissions', '--effort', 'max']);
+      expect(lastRun).toHaveBeenCalledWith('claude-123', '/project', undefined);
+    } finally {
+      lastRun.mockRestore();
+    }
+  });
+
+  it('attaches to a conversation Claude Code runs as a live background session', () => {
+    const proc = createMockPtyProcess();
+    mockSpawn.mockReturnValue(proc);
+    mockLiveBackgroundJob.mockReturnValueOnce('b54b5bdc');
+
+    spawnPty('s1', '/project', 'b54b5bdc-1111-4111-8111-111111111111', true, '--effort high', 'claude', undefined, undefined, '', vi.fn(), vi.fn());
+
+    // `claude -r` is refused while a daemon worker holds the session.
+    const argv = mockSpawn.mock.calls[0][1] as string[];
+    expect(argv.slice(argv.indexOf('attach'))).toEqual(['attach', 'b54b5bdc']);
+    expect(argv).not.toContain('-r');
+  });
+
+  it('opens the conversation a tab followed into the background, and says so', () => {
+    const proc = createMockPtyProcess();
+    mockSpawn.mockReturnValue(proc);
+    const resolveSpy = vi.spyOn(getProvider('claude'), 'resolveConversation').mockReturnValue({ cliSessionId: 'claude-bbb', attachShort: null, reason: 'handoff' });
+    try {
+      const onResolved = vi.fn();
+      spawnPty('s1', '/project', 'claude-aaa', true, '', 'claude', undefined, undefined, '', vi.fn(), vi.fn(), undefined, undefined, onResolved);
+      const argv = mockSpawn.mock.calls[0][1] as string[];
+      expect(argv.slice(argv.indexOf('-r'), argv.indexOf('-r') + 2)).toEqual(['-r', 'claude-bbb']);
+      expect(onResolved).toHaveBeenCalledWith('claude-bbb', null, 'handoff');
+      expect(resolveSpy).toHaveBeenCalledWith('claude-aaa', '/project', undefined, undefined);
+
+      // Nothing to report when the tab opens what it asked for.
+      resolveSpy.mockReturnValue({ cliSessionId: 'claude-ccc', attachShort: null });
+      const quiet = vi.fn();
+      spawnPty('s2', '/project', 'claude-ccc', true, '', 'claude', undefined, undefined, '', vi.fn(), vi.fn(), undefined, undefined, quiet);
+      expect(quiet).not.toHaveBeenCalled();
+    } finally {
+      resolveSpy.mockRestore();
     }
   });
 

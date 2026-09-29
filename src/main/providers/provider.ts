@@ -19,7 +19,14 @@ export interface CliProvider {
   resolveBinaryPath(): string;
   validatePrerequisites(): boolean;
   buildEnv(sessionId: string, baseEnv: Record<string, string>, opts?: { configDir?: string }): Record<string, string>;
-  buildArgs(opts: { cliSessionId: string | null; isResume: boolean; extraArgs: string; initialPrompt?: string; systemPrompt?: string }): string[];
+  buildArgs(opts: { cliSessionId: string | null; isResume: boolean; extraArgs: string; initialPrompt?: string; systemPrompt?: string; effort?: string }): string[];
+  /** Effort the conversation last actually ran at, read from its transcript (Claude only). */
+  lastConversationEffort?(cliSessionId: string, projectPath: string, configDir?: string): string | undefined;
+  /**
+   * Which conversation a resumed tab opens, and whether by attaching to the
+   * live background session that holds it (Claude only).
+   */
+  resolveConversation?(cliSessionId: string, projectPath: string, configDir?: string, attachShort?: string): ResolvedConversation;
   installHooks(win?: BrowserWindow | null, projectPath?: string): Promise<void>;
   installStatusScripts(): void;
   cleanup(): void;
@@ -42,4 +49,16 @@ export interface CliProvider {
   installAgent?(slug: string, content: string): Promise<{ filePath: string }>;
   /** Remove `<slug>.md` from the agents dir. Best-effort: missing file is not an error. */
   removeAgent?(slug: string): Promise<void>;
+}
+
+/** Where a resumed tab goes: `attachShort` set means `claude attach <attachShort>`, else `claude -r <cliSessionId>`. */
+export interface ResolvedConversation {
+  cliSessionId: string;
+  attachShort: string | null;
+  /**
+   * Why `cliSessionId` isn't the one asked for: 'handoff', the same
+   * conversation carried on in a background session; 'job', the background job
+   * the tab was attached to moved on to another conversation.
+   */
+  reason?: 'handoff' | 'job';
 }

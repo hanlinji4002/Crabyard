@@ -226,10 +226,14 @@ os.makedirs(d)
 os.environ['CLAUDE_IDE_SESSION_ID']='sess1'
 def run(payload):
     sys.stdin=io.StringIO(payload)
+    real=sys.stdout
+    sys.stdout=io.TextIOWrapper(io.BytesIO(),encoding='utf-8') # the HUD line
     try:
         exec(compile(src,'statusline','exec'),{})
     except SystemExit:
         pass
+    finally:
+        sys.stdout=real
     return json.load(open(os.path.join(d,'sess1.cost')))
 full=run(json.dumps({'cost':{'total_cost_usd':1},'model':{'id':'claude-opus-5-5','display_name':'Opus 5.5 (1M context)'},'effort':{'level':'high'},'thinking':{'enabled':False},'fast_mode':True,'rate_limits':{'five_hour':{'used_percentage':57,'resets_at':1790000000},'seven_day':{'used_percentage':10,'resets_at':1790300000}}}))
 bare=run(json.dumps({'cost':{'total_cost_usd':2},'model':None}))
@@ -300,6 +304,91 @@ sys.stdout.write(json.dumps({'native':native,'derived':derived,'none':none}))
       expect(plain(seen.derived)).toBe(`Context ${bar(9)} 90% (180k / 200k)\n`);
       expect(seen.derived).toContain('\u001b[31m'); // red from 85%
       expect(seen.none).toBe('');
+    });
+
+    it('leads the HUD with the model and effort level', () => {
+      if (!hasPython()) return; // no python3 on this runner
+      const tmp = path.join(
+        process.env.TMPDIR || process.env.TEMP || '/tmp',
+        `vibeyard-statusline-head-${process.pid}`,
+      );
+      const driver = `
+import sys,os,io,json,shutil
+src=sys.stdin.read()
+d=${JSON.stringify(tmp)}
+shutil.rmtree(d,ignore_errors=True)
+os.makedirs(d)
+os.environ['CLAUDE_IDE_SESSION_ID']='sess1'
+def run(payload):
+    sys.stdin=io.StringIO(payload)
+    buf=io.BytesIO()
+    real=sys.stdout
+    wrapper=io.TextIOWrapper(buf,encoding='utf-8')
+    sys.stdout=wrapper
+    try:
+        exec(compile(src,'statusline','exec'),{})
+    except SystemExit:
+        pass
+    finally:
+        wrapper.flush()
+        sys.stdout=real
+    out=buf.getvalue()
+    wrapper.detach()
+    return out.decode('utf-8')
+ctx={'context_window_size':1000000,'used_percentage':36,'current_usage':{'input_tokens':6100,'cache_read_input_tokens':350000}}
+full=run(json.dumps({'model':{'display_name':'Opus 5.5 (1M context)'},'effort':{'level':'max'},'context_window':ctx}))
+head_only=run(json.dumps({'model':{'display_name':'Sonnet 5'},'effort':{'level':'medium'},'thinking':{'enabled':False}}))
+no_effort=run(json.dumps({'model':{'display_name':'Haiku 4.5'},'context_window':ctx}))
+shutil.rmtree(d,ignore_errors=True)
+sys.stdout.write(json.dumps({'full':full,'head_only':head_only,'no_effort':no_effort}))
+`;
+      const result = runPython(driver, buildStatusLinePython(tmp));
+      expect(result.stderr.toString()).toBe('');
+      const seen = JSON.parse(result.stdout.toString());
+      const plain = (s: string) => s.replace(/\u001b\[[0-9;]*m/g, '');
+      const bar = '\u2588'.repeat(4) + '\u2591'.repeat(6);
+      // The context size already shows in the bar, so the model drops its '(1M context)'.
+      expect(plain(seen.full)).toBe(`[Opus 5.5] \u25c9 max \u2502 Context ${bar} 36% (356.1k / 1M)\n`);
+      expect(plain(seen.head_only)).toBe('[Sonnet 5] \u25d0 medium thinking off\n');
+      // Models without effort levels get no effort segment.
+      expect(plain(seen.no_effort)).toBe(`[Haiku 4.5] \u2502 Context ${bar} 36% (356.1k / 1M)\n`);
+    });
+
+    it('prints the HUD for a daemon-run background session but writes none of the tab\'s files', () => {
+      if (!hasPython()) return; // no python3 on this runner
+      const tmp = path.join(
+        process.env.TMPDIR || process.env.TEMP || '/tmp',
+        `vibeyard-statusline-bg-${process.pid}`,
+      );
+      const driver = `
+import sys,os,io,json,shutil
+src=sys.stdin.read()
+d=${JSON.stringify(tmp)}
+shutil.rmtree(d,ignore_errors=True)
+os.makedirs(d)
+os.environ['CLAUDE_IDE_SESSION_ID']='tab1'
+os.environ['CLAUDE_JOB_DIR']='/home/u/.claude/jobs/b54b5bdc'
+sys.stdin=io.StringIO(json.dumps({'session_id':'fork-1','session_name':'X','model':{'display_name':'Opus 5.5'},'cost':{'total_cost_usd':1}}))
+buf=io.BytesIO()
+real=sys.stdout
+wrapper=io.TextIOWrapper(buf,encoding='utf-8')
+sys.stdout=wrapper
+try:
+    exec(compile(src,'statusline','exec'),{})
+except SystemExit:
+    pass
+finally:
+    wrapper.flush()
+    sys.stdout=real
+files=sorted(os.listdir(d))
+shutil.rmtree(d,ignore_errors=True)
+sys.stdout.write(json.dumps({'hud':buf.getvalue().decode('utf-8'),'files':files}))
+`;
+      const result = runPython(driver, buildStatusLinePython(tmp));
+      expect(result.stderr.toString()).toBe('');
+      const seen = JSON.parse(result.stdout.toString());
+      expect(seen.hud).toContain('[Opus 5.5]');
+      expect(seen.files).toEqual([]);
     });
 
     it('is syntactically valid Python', () => {

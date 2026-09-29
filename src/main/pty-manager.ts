@@ -278,7 +278,11 @@ export async function spawnPty(
   envVars: string,
   onData: (data: string) => void,
   onExit: (exitCode: number, signal?: number) => void,
-  configDir?: string
+  configDir?: string,
+  /** The background job this tab was attached to, if it was. */
+  attachShort?: string,
+  /** The conversation the tab actually opened, when it isn't the one asked for. */
+  onResolved?: (cliSessionId: string, attachShort: string | null, reason?: 'handoff' | 'job') => void
 ): Promise<void> {
   if (ptys.has(sessionId)) {
     // Silence the old PTY's exit event so it doesn't remove the new session
@@ -340,7 +344,25 @@ export async function spawnPty(
   // User-provided env vars are merged last so they can override anything,
   // including provider-set vars like PATH (see plan: "user vars win").
   Object.assign(env, parseEnvVars(envVars));
-  const args = provider.buildArgs({ cliSessionId, isResume, extraArgs, initialPrompt, systemPrompt });
+  // Background sessions (/fork, ← on an empty prompt): a tab may follow its
+  // conversation to another id, and one a live background session holds opens
+  // with `claude attach` because the CLI refuses `-r` for it.
+  const resolved = isResume && cliSessionId && provider.resolveConversation
+    ? provider.resolveConversation(cliSessionId, cwd, configDir, attachShort)
+    : null;
+  const resumeId = resolved?.cliSessionId ?? cliSessionId;
+  // A resumed conversation keeps the effort its transcript says it last ran
+  // at; one that never got a reply starts at the default like a new one.
+  // Synchronous on purpose.
+  const resumeEffort = !resolved?.attachShort && isResume && resumeId
+    ? provider.lastConversationEffort?.(resumeId, cwd, configDir)
+    : undefined;
+  const args = resolved?.attachShort
+    ? ['attach', resolved.attachShort]
+    : provider.buildArgs({ cliSessionId: resumeId, isResume, extraArgs, initialPrompt, systemPrompt, effort: resumeEffort });
+  if (resolved && (resolved.cliSessionId !== cliSessionId || resolved.attachShort !== (attachShort ?? null))) {
+    onResolved?.(resolved.cliSessionId, resolved.attachShort, resolved.reason);
+  }
   const resolvedShell = provider.resolveBinaryPath();
   const { shell, args: spawnArgs } = resolveWindowsShell(resolvedShell, args);
 

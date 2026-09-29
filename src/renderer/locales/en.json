@@ -78,6 +78,7 @@
     },
     "shareIndicatorTooltip": "Sharing",
     "closeTooltip": "Close session",
+    "typesetTooltip": "Typeset view: Claude's replies in this conversation with formulas, tables and code laid out, updating live",
     "newSession": {
       "defaultName": "Session {num}"
     },
@@ -333,6 +334,15 @@
     "none": "No Claude Code chats found",
     "delete": "Delete chat",
     "deleteOpen": "Close this chat’s tab to delete it",
+    "stopBackground": "Stop background run",
+    "stopTitle": "Stop background run",
+    "stopMessage": "Stop “{title}” running in the background? Whatever it is doing is interrupted; the chat is kept, and you can pick it up again later.",
+    "stopConfirm": "Stop",
+    "stopFailed": "Couldn’t stop it: {error}",
+    "background": "Running in the background",
+    "forkOf": "⑂ forked from “{title}”",
+    "deleteBackground": "This chat is running in the background; delete it once it ends",
+    "deleteRecent": "This chat was written to moments ago; try again in a minute",
     "deleteTitle": "Delete this chat?",
     "deleteMessage": "“{title}” moves to the Trash and disappears from /resume and this list. You can restore it from the Trash.",
     "deleteConfirm": "Move to Trash",
@@ -367,53 +377,6 @@
     "disclaimer": "Estimated at API list prices from local transcripts. Subscription plans are not billed per token.",
     "unpriced": "No price known for: {models} (counted as $0)",
     "updated": "Updated {time}"
-  },
-  "sessionControls": {
-    "model": "Model",
-    "effort": "Thinking",
-    "mode": "Mode",
-    "off": "off",
-    "modelTitle": "Switch model (sends /model)",
-    "effortTitle": "Thinking effort and on/off (sends /effort or Alt+T)",
-    "modeTitle": "Permission mode (cycles with Shift+Tab)",
-    "thinkingOn": "Thinking on",
-    "thinkingOff": "Thinking off",
-    "notReady": "Claude is showing a dialog or isn't ready — try again in a moment",
-    "draftPresent": "The prompt has unsent text — send it or clear it with Ctrl+C first",
-    "sent": "Sent {command}",
-    "failed": "Couldn't switch — try it in the terminal",
-    "modeUnavailable": "This mode isn't available in this session (bypass must be allowed at launch)",
-    "modes": {
-      "default": "Manual",
-      "acceptEdits": "Accept edits",
-      "plan": "Plan",
-      "auto": "Auto",
-      "bypassPermissions": "Bypass permissions",
-      "dontAsk": "Don't ask"
-    },
-    "efforts": {
-      "auto": "Auto",
-      "low": "Low",
-      "medium": "Medium",
-      "high": "High",
-      "xhigh": "Extra high",
-      "max": "Max"
-    },
-    "confirmInTerminal": "Confirm in the terminal: Enter to continue, Esc to cancel",
-    "ultracode": "Ultracode",
-    "ultracodeOn": "Ultracode · on",
-    "ultracodeOnSuffix": " · on",
-    "ultracodeTitle": "Ultracode: xhigh effort plus dynamic multi-agent workflows, for this session only. Click to turn it on (sends /effort ultracode); click again to turn it off (sends /effort xhigh, which Claude Code also saves as the default effort for new sessions)",
-    "ultracodeEnabled": "Ultracode is on",
-    "ultracodeDisabled": "Ultracode is off — effort is back to extra high",
-    "ultracodeUnavailable": {
-      "needsWorkflows": "Can't turn on Ultracode: enable dynamic workflows in Claude Code's /config first",
-      "capped": "Can't turn on Ultracode: your settings or organization cap effort below xhigh",
-      "unsupported": "Can't turn on Ultracode: this model doesn't support xhigh — switch to one that does (e.g. Opus 5.5)",
-      "envOverride": "Ultracode can't take effect: CLAUDE_CODE_EFFORT_LEVEL overrides the effort — clear it first"
-    },
-    "typeset": "Typeset",
-    "typesetTitle": "Typeset view: Claude's replies in this conversation with formulas, tables and code laid out, updating live"
   },
   "usagePanel": {
     "toggle": "Show or hide usage totals",

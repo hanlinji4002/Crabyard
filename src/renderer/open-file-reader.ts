@@ -67,3 +67,17 @@ export async function openFileReaderChecked(
 export function openConversationView(projectId: string, transcriptPath: string, title: string): void {
   void openFileReaderChecked(projectId, transcriptPath, undefined, t('preview.tabName', { title: title || t('conversations.untitled') }));
 }
+
+/**
+ * Open a tab's own conversation in the typeset view. False while there is
+ * nothing to show yet: the CLI writes its transcript with the first message.
+ */
+export async function openSessionTypesetView(projectId: string, sessionId: string): Promise<boolean> {
+  const session = appState.projects.find((p) => p.id === projectId)?.sessions.find((s) => s.id === sessionId);
+  const transcript = session?.cliSessionId
+    ? await window.vibeyard.claudeHistory.transcriptPath(session.cliSessionId).catch(() => null)
+    : null;
+  if (!session || !transcript) return false;
+  openConversationView(projectId, transcript, session.name);
+  return true;
+}

@@ -69,6 +69,13 @@ export function hideHoverCard(): void {
   hide();
 }
 
+/** Show `content` under `target` right away, for a moment: feedback for a click that did nothing. */
+export function flashHoverCard(target: HTMLElement, content: string, ms = 2500): void {
+  if (showTimer) clearTimeout(showTimer);
+  show(target, content);
+  showTimer = setTimeout(hide, ms);
+}
+
 export function attachHoverCard(target: HTMLElement, content: string): void {
   target.addEventListener('mouseenter', () => scheduleShow(target, content));
   target.addEventListener('focusin', () => scheduleShow(target, content));

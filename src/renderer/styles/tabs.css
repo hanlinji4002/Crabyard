@@ -143,6 +143,29 @@
   color: var(--accent);
 }
 
+/* ∑ opens the tab's conversation in the typeset view (tab-list.ts); it shows
+   with the close button. */
+.tab-typeset {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.tab-item:hover .tab-typeset,
+.tab-typeset:focus-visible {
+  opacity: 1;
+}
+
+.tab-typeset:hover {
+  color: var(--accent);
+}
+
 /* Git status indicator */
 /* The git summary floats as a card under the session tab being hovered
    (tab-bar/git-status-bar.ts), instead of sitting in the tab bar. */

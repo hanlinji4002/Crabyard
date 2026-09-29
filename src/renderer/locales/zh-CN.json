@@ -78,6 +78,7 @@
     },
     "shareIndicatorTooltip": "分享中",
     "closeTooltip": "关闭会话",
+    "typesetTooltip": "排版视图：把这个对话里 Claude 的回答排好版（公式、表格、代码块），跟着对话实时更新",
     "newSession": {
       "defaultName": "会话 {num}"
     },
@@ -333,6 +334,15 @@
     "none": "没有找到 Claude Code 对话",
     "delete": "删除对话",
     "deleteOpen": "对话开着，先关掉它的标签再删",
+    "stopBackground": "停止后台运行",
+    "stopTitle": "停止后台运行",
+    "stopMessage": "停止「{title}」在后台的运行？它正在做的事会中断；对话会保留，之后点开可以接着聊。",
+    "stopConfirm": "停止",
+    "stopFailed": "没能停止：{error}",
+    "background": "后台运行中",
+    "forkOf": "⑂ 分支自「{title}」",
+    "deleteBackground": "这个对话正在后台运行，结束后才能删",
+    "deleteRecent": "这个对话刚刚还在写入，过一会儿再删",
     "deleteTitle": "删除这个对话？",
     "deleteMessage": "「{title}」会被移到废纸篓，/resume 和这里都不会再显示它。需要时可以从废纸篓里恢复。",
     "deleteConfirm": "移到废纸篓",
@@ -367,53 +377,6 @@
     "disclaimer": "按 API 单价从本地记录估算。订阅套餐不按 token 计费，这里只是等价 API 花费。",
     "unpriced": "以下模型没有价格数据：{models}（按 $0 计）",
     "updated": "更新于 {time}"
-  },
-  "sessionControls": {
-    "model": "模型",
-    "effort": "思考",
-    "mode": "模式",
-    "off": "关",
-    "modelTitle": "切换模型（发送 /model）",
-    "effortTitle": "思考强度和思考开关（发送 /effort 或 Alt+T）",
-    "modeTitle": "权限模式（用 Shift+Tab 切换）",
-    "thinkingOn": "开启思考",
-    "thinkingOff": "关闭思考",
-    "notReady": "Claude 这会儿有弹窗或还没就绪，稍后再试",
-    "draftPresent": "输入框里有没发出的内容，先发送或按 Ctrl+C 清空",
-    "sent": "已发送 {command}",
-    "failed": "没切换成功，请直接在终端里操作",
-    "modeUnavailable": "这个会话切不到该模式（跳过权限需要启动时就允许）",
-    "modes": {
-      "default": "手动确认",
-      "acceptEdits": "自动接受编辑",
-      "plan": "计划模式",
-      "auto": "自动",
-      "bypassPermissions": "跳过所有权限",
-      "dontAsk": "不询问"
-    },
-    "efforts": {
-      "auto": "默认",
-      "low": "低",
-      "medium": "中",
-      "high": "高",
-      "xhigh": "超高",
-      "max": "最大"
-    },
-    "confirmInTerminal": "终端里要你确认：按回车继续，Esc 取消",
-    "ultracode": "Ultracode",
-    "ultracodeOn": "Ultracode · 开",
-    "ultracodeOnSuffix": " · 开",
-    "ultracodeTitle": "Ultracode：xhigh 思考 + 动态多 agent 编排，只对这个会话有效。点一下开启（发送 /effort ultracode），再点关闭（发送 /effort xhigh，Claude Code 会把 xhigh 存成新会话的默认思考强度）",
-    "ultracodeEnabled": "已开启 Ultracode",
-    "ultracodeDisabled": "已关闭 Ultracode，思考强度回到超高",
-    "ultracodeUnavailable": {
-      "needsWorkflows": "开不了 Ultracode：先在 Claude Code 的 /config 里打开 Dynamic workflows",
-      "capped": "开不了 Ultracode：你的设置或组织把思考强度限制在 xhigh 以下",
-      "unsupported": "开不了 Ultracode：当前模型不支持 xhigh，先换一个支持的模型（如 Opus 5.5）",
-      "envOverride": "开不了 Ultracode：环境变量 CLAUDE_CODE_EFFORT_LEVEL 正在覆盖思考强度，清掉它才会生效"
-    },
-    "typeset": "排版",
-    "typesetTitle": "排版视图：把这个对话里 Claude 的回答排好版（公式、表格、代码块），跟着对话实时更新"
   },
   "usagePanel": {
     "toggle": "显示或隐藏用量统计",

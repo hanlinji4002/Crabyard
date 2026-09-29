@@ -1,6 +1,7 @@
 import type { PersistedState, Preferences, ProjectRecord, SessionRecord } from '../../shared/types.js';
 import { restoreCost } from '../session-cost.js';
 import { restoreContext } from '../session-context.js';
+import { hydrateConversationTitles } from './conversation-titles.js';
 
 /** Tab types this fork removed: Overview, Kanban, Browser, MCP inspector, joined remote sessions. */
 const REMOVED_SESSION_TYPES = new Set<string>(['project-tab', 'kanban', 'browser-tab', 'mcp-inspector', 'remote-terminal']);
@@ -35,6 +36,7 @@ export function hydrateLoadedState(state: PersistedState, defaultPreferences: Pr
       }
     }
   }
+  hydrateConversationTitles(state);
 }
 
 /**

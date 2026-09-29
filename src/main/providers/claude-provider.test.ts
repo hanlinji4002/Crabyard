@@ -171,6 +171,7 @@ describe('buildArgs', () => {
   });
 
   it('returns ["-r", id] when isResume=true with cliSessionId', () => {
+    // Nothing in the transcript to go by (it never got a reply): the defaults, like a new conversation.
     const args = provider.buildArgs({ cliSessionId: 'sid-1', isResume: true, extraArgs: '' });
     expect(args).toEqual(['-r', 'sid-1', ...DEFAULTS]);
   });
@@ -193,6 +194,49 @@ describe('buildArgs', () => {
   it('combines session args and extra args', () => {
     const args = provider.buildArgs({ cliSessionId: 'sid-1', isResume: true, extraArgs: '--verbose' });
     expect(args).toEqual(['-r', 'sid-1', '--verbose', ...DEFAULTS]);
+  });
+
+  it('resumes at the effort the transcript last ran at, max included', () => {
+    expect(provider.buildArgs({ cliSessionId: 'sid-1', isResume: true, extraArgs: '', effort: 'max' }))
+      .toEqual(['-r', 'sid-1', '--permission-mode', 'bypassPermissions', '--effort', 'max']);
+    expect(provider.buildArgs({ cliSessionId: 'sid-1', isResume: true, extraArgs: '', effort: 'medium' }))
+      .toEqual(['-r', 'sid-1', '--permission-mode', 'bypassPermissions', '--effort', 'medium']);
+  });
+
+  it('lets the last-run effort replace an --effort the tab was created with', () => {
+    expect(provider.buildArgs({ cliSessionId: 'sid-1', isResume: true, extraArgs: '--effort high --verbose', effort: 'max' }))
+      .toEqual(['-r', 'sid-1', '--verbose', '--permission-mode', 'bypassPermissions', '--effort', 'max']);
+    expect(provider.buildArgs({ cliSessionId: 'sid-1', isResume: true, extraArgs: '--effort=high', effort: 'max' }))
+      .toEqual(['-r', 'sid-1', '--permission-mode', 'bypassPermissions', '--effort', 'max']);
+  });
+
+  it('keeps the session args effort on a resume with nothing in the transcript', () => {
+    expect(provider.buildArgs({ cliSessionId: 'sid-1', isResume: true, extraArgs: '--effort high' }))
+      .toEqual(['-r', 'sid-1', '--effort', 'high', '--permission-mode', 'bypassPermissions']);
+  });
+
+  it('keeps --effort ultracode from the session args: it runs at xhigh, which is all a transcript can say', () => {
+    expect(provider.buildArgs({ cliSessionId: 'sid-1', isResume: true, extraArgs: '--effort ultracode', effort: 'xhigh' }))
+      .toEqual(['-r', 'sid-1', '--effort', 'ultracode', '--permission-mode', 'bypassPermissions']);
+    expect(provider.buildArgs({ cliSessionId: 'sid-1', isResume: true, extraArgs: '--effort=ultracode', effort: 'xhigh' }))
+      .toEqual(['-r', 'sid-1', '--effort=ultracode', '--permission-mode', 'bypassPermissions']);
+    // A level the conversation went on at later still wins over it.
+    expect(provider.buildArgs({ cliSessionId: 'sid-1', isResume: true, extraArgs: '--effort ultracode', effort: 'max' }))
+      .toEqual(['-r', 'sid-1', '--permission-mode', 'bypassPermissions', '--effort', 'max']);
+  });
+
+  it('ignores an unknown last-run effort', () => {
+    expect(provider.buildArgs({ cliSessionId: 'sid-1', isResume: true, extraArgs: '', effort: 'ultracode' }))
+      .toEqual(['-r', 'sid-1', ...DEFAULTS]);
+    expect(provider.buildArgs({ cliSessionId: 'sid-1', isResume: true, extraArgs: '', effort: 'max; rm -rf' }))
+      .toEqual(['-r', 'sid-1', ...DEFAULTS]);
+  });
+
+  it('starts new conversations at xhigh whatever effort is passed', () => {
+    expect(provider.buildArgs({ cliSessionId: null, isResume: false, extraArgs: '', effort: 'max' })).toEqual([...DEFAULTS]);
+    // isResume without an id cannot resume anything: a new conversation
+    expect(provider.buildArgs({ cliSessionId: null, isResume: true, extraArgs: '', effort: 'max' })).toEqual([...DEFAULTS]);
+    expect(provider.buildArgs({ cliSessionId: 'sid-1', isResume: false, extraArgs: '', effort: 'max' })).toEqual(['--session-id', 'sid-1', ...DEFAULTS]);
   });
 
   it('passes initialPrompt as positional arg', () => {

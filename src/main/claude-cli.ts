@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { homedir } from 'os';
 import { STATUS_DIR, getStatusLineScriptPath } from './hook-status';
-import { statusCmd as mkStatusCmd, stopStatusCmd as mkStopStatusCmd, captureSessionIdCmd as mkCaptureSessionIdCmd, captureToolFailureCmd as mkCaptureToolFailureCmd, installEventScript, wrapPythonHookCmd, installHookScripts } from './hook-commands';
+import { statusCmd as mkStatusCmd, stopStatusCmd as mkStopStatusCmd, captureSessionIdCmd as mkCaptureSessionIdCmd, captureToolFailureCmd as mkCaptureToolFailureCmd, installEventScript, wrapPythonHookCmd, installHookScripts, PY_SKIP_BACKGROUND_SESSION } from './hook-commands';
 import { readJsonSafe, readDirSafe } from './fs-utils';
 import { parseFrontmatter } from './frontmatter';
 import { getSupportedHookEvents as computeSupportedHookEvents } from './claude-hook-versions';
@@ -398,6 +398,7 @@ except:
 sid=os.environ.get("CLAUDE_IDE_SESSION_ID","")
 if not sid:
  sys.exit(0)
+${PY_SKIP_BACKGROUND_SESSION}
 cs=d.get("cost",{})
 cw=d.get("context_window",{})
 e={"type":"${eventType}","timestamp":int(time.time()*1000),"hookEvent":"${hookEvent}"}

@@ -9,8 +9,8 @@ import * as fs from 'fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { stopStatusCmd, installHookScripts, STOP_STALE_MS } from './hook-commands';
-import { pythonBin } from './platform';
+import { stopStatusCmd, statusCmd, installHookScripts, STOP_STALE_MS, PY_SKIP_BACKGROUND_SESSION } from './hook-commands';
+import { isWin, pythonBin } from './platform';
 
 // `fs` is mocked module-wide above; the executed-script suite below needs the
 // real thing to stage a temp dir and read back what the hook wrote.
@@ -200,5 +200,47 @@ describe.runIf(pythonAvailable)('stop_status_writer.py behaviour', () => {
     });
     expect(res.status).toBe(0);
     expect(realFs.readFileSync(statusPath, 'utf8')).toBe('Stop:completed');
+  });
+});
+
+// Claude Code runs /fork, /background and agents-view sessions in a daemon that
+// kept the environment of the tab whose CLI started it — CLAUDE_IDE_SESSION_ID
+// included. Such a session must never write that tab's status files, or it
+// takes the tab over (session id, name, cost, status).
+describe('background sessions', () => {
+  const SCRIPTS = ['status_writer.py', 'stop_status_writer.py', 'session_id_capture.py', 'tool_failure_capture.py'];
+
+  it('every shared script ends early for a daemon-run session', () => {
+    for (const name of SCRIPTS) expect(installedScript(name), name).toContain(PY_SKIP_BACKGROUND_SESSION);
+    expect(PY_SKIP_BACKGROUND_SESSION).toContain("os.environ.get('CLAUDE_JOB_DIR')");
+  });
+
+  it.runIf(pythonAvailable)('session_id_capture.py writes nothing when CLAUDE_JOB_DIR is set', () => {
+    const dir = realFs.mkdtempSync(path.join(os.tmpdir(), 'vibeyard-bg-'));
+    try {
+      const script = path.join(dir, 'session_id_capture.py');
+      realFs.writeFileSync(script, installedScript('session_id_capture.py'));
+      const run = (extra: Record<string, string>) => spawnSync(pythonBin, [script, 'CLAUDE_IDE_SESSION_ID', dir], {
+        input: JSON.stringify({ session_id: 'fork-1' }),
+        env: { ...process.env, CLAUDE_IDE_SESSION_ID: 'tab-1', CLAUDE_JOB_DIR: '', ...extra },
+        encoding: 'utf8',
+      });
+      const idFile = path.join(dir, 'tab-1.sessionid');
+
+      expect(run({ CLAUDE_JOB_DIR: '/home/u/.claude/jobs/abcd1234' }).status).toBe(0);
+      expect(realFs.existsSync(idFile)).toBe(false);
+
+      expect(run({}).status).toBe(0);
+      expect(realFs.readFileSync(idFile, 'utf8')).toBe('fork-1');
+    } finally {
+      realFs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.runIf(!isWin)('the shell status command skips daemon-run sessions and a Claude outside any tab', () => {
+    const cmd = statusCmd('Stop', 'completed', 'CLAUDE_IDE_SESSION_ID', HOOK_MARKER);
+    expect(cmd).toContain('[ -z "$CLAUDE_JOB_DIR" ]');
+    expect(cmd).toContain('[ -n "$CLAUDE_IDE_SESSION_ID" ]');
+    expect(cmd.trimEnd().endsWith(`${HOOK_MARKER}'`)).toBe(true);
   });
 });

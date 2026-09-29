@@ -14,7 +14,6 @@ import { FilePathLinkProvider, GithubLinkProvider } from './terminal-link-provid
 import { attachClipboardCopyHandler, attachCopyOnSelect, collapseArmedTextareaOnContextMenu, loadWebglWithFallback, wrapBracketedPaste } from './terminal-utils.js';
 import { FILE_PATH_DRAG_TYPE, NATIVE_FILES_DRAG_TYPE } from '../drag-types.js';
 import { showTerminalContextMenu } from './terminal-context-menu.js';
-import { mountSessionControls, unmountSessionControls, scheduleModeRefresh } from './session-controls.js';
 
 interface TerminalInstance {
   terminal: Terminal;
@@ -66,11 +65,10 @@ export function createTerminalPane(
   xtermWrap.className = 'xterm-wrap';
   element.appendChild(xtermWrap);
 
-  // The bar under the terminal holds the model / thinking / mode pills (Claude)
-  // and, with several CLI profiles, which one backs this session. Context lives
-  // in the conversation itself — the statusLine prints a claude-hud style bar
-  // under Claude's prompt — so the bar carries no context, model, cost or token
-  // readouts of its own.
+  // The bar under the terminal only says which CLI profile backs this session,
+  // and only when there are several. Model, effort and context live in the
+  // conversation itself: the statusLine prints a claude-hud style line under
+  // Claude's prompt.
   const statusBar = document.createElement('div');
   statusBar.className = 'session-status-bar';
   const profileDisplay = document.createElement('div');
@@ -139,13 +137,6 @@ export function createTerminalPane(
   };
 
   instances.set(sessionId, instance);
-
-  // Model / thinking / mode pills drive the Claude CLI through its own
-  // keybindings; the footer is re-read after output settles to track the mode.
-  if (providerId === 'claude') {
-    mountSessionControls(statusBar, sessionId, () => instances.get(sessionId)?.terminal);
-    terminal.onWriteParsed(() => scheduleModeRefresh(sessionId));
-  }
 
   updateProfileDisplay(sessionId);
 
@@ -299,7 +290,11 @@ export async function spawnTerminal(sessionId: string): Promise<void> {
     systemPrompt = instance.pendingSystemPrompt;
     instance.pendingSystemPrompt = null;
   }
-  await window.vibeyard.pty.create(sessionId, instance.projectPath, instance.cliSessionId, instance.isResume, instance.args, instance.providerId, initialPrompt, systemPrompt, instance.envVars, instance.configDir);
+  // Resume where the tab is now: its conversation may have moved since the pane
+  // was made (/clear, /branch, a background session it followed).
+  const record = instance.isResume ? appState.findSessionWithProject(sessionId)?.session : undefined;
+  const cliSessionId = record?.cliSessionId ?? instance.cliSessionId;
+  await window.vibeyard.pty.create(sessionId, instance.projectPath, cliSessionId, instance.isResume, instance.args, instance.providerId, initialPrompt, systemPrompt, instance.envVars, instance.configDir, record?.attachShort);
   instance.isResume = true; // subsequent spawns (e.g. Restart Session) should resume
 
   // Callers fire this un-awaited and fit the pane immediately after, so that fit
@@ -442,7 +437,6 @@ export function destroyTerminal(sessionId: string): void {
   instance.terminal.dispose();
   instance.element.remove();
   instances.delete(sessionId);
-  unmountSessionControls(sessionId);
   removeSession(sessionId);
   removeCostSession(sessionId);
   removeContextSession(sessionId);
@@ -482,5 +476,12 @@ export function updateProfileDisplay(sessionId: string): void {
     el.appendChild(pill);
   }
   const bar = instance.element.querySelector('.session-status-bar') as HTMLElement | null;
-  bar?.classList.toggle('hidden', !profileName && !bar.classList.contains('has-controls'));
+  if (!bar) return;
+  const wasHidden = bar.classList.contains('hidden');
+  bar.classList.toggle('hidden', !profileName);
+  // The bar's height comes out of the terminal's: refit when it comes or goes,
+  // or Claude's prompt box and HUD line end up under it.
+  if (wasHidden === !profileName) return;
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => fitTerminal(sessionId));
+  else fitTerminal(sessionId);
 }

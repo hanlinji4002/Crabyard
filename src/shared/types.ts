@@ -109,6 +109,12 @@ export interface SessionRecord {
   teamMemberId?: string;
   /** Persisted, sticky: which Profile backs this session's CLI config dir. Resume must reuse it. */
   profileId?: string;
+  /**
+   * Persisted: the Claude Code background job (/fork) this tab is attached to
+   * with `claude attach`. Reopening follows the job, which may have moved to
+   * another conversation or ended, rather than trusting `cliSessionId`.
+   */
+  attachShort?: string;
   /** Transient: initial prompt to inject on first spawn. Not persisted. */
   pendingInitialPrompt?: string;
   /** Transient: system prompt to attach on first spawn. Not persisted (resume must not re-inject). */
@@ -298,6 +304,27 @@ export interface PersistedState {
   team?: TeamData;
   /** Global, provider-scoped CLI profiles (e.g. Claude work/personal config dirs). */
   profiles?: Profile[];
+  /**
+   * Names the user gave conversations in Crabyard (tab rename), keyed by CLI
+   * session id. Global rather than per project: the sidebar lists every
+   * transcript folder, and the name must outlive the tab and the project.
+   * Shown over the transcript's own title and used to name a reopened tab.
+   * Never written back to the transcript; CLI auto titles never land here.
+   */
+  conversationTitles?: Record<string, ConversationTitle>;
+}
+
+/** A name the user gave a conversation in Crabyard (see PersistedState.conversationTitles). */
+export interface ConversationTitle {
+  title: string;
+  /** When it was set (epoch ms). */
+  at: number;
+  /**
+   * The transcript's own custom title (a CLI /rename) when this name was set;
+   * null when it had none, absent until looked at. A different one later means
+   * the user renamed the conversation in the CLI since, and that wins.
+   */
+  base?: string | null;
 }
 
 // --- Cost / Context ---
@@ -489,6 +516,21 @@ export interface ClaudeConversation {
   updatedAt: number;
   gitBranch?: string;
   model?: string;
+  /**
+   * Claude Code runs this conversation as a background session (/fork,
+   * /background) in its daemon. `short` is the id `claude attach` takes;
+   * `live` means a daemon worker holds it right now, so `claude -r` can't open it.
+   */
+  background?: { short: string; live: boolean; state: string };
+  /** A /fork: the conversation it was forked from. */
+  forkOf?: string;
+  /** The transcript's custom title (a CLI /rename or --name), when it has one. */
+  customTitle?: string;
+  /**
+   * Conversations this one carries on after they were handed off to it (← on
+   * an empty prompt), nearest first. Those are left out of the list.
+   */
+  continuedFrom?: string[];
 }
 
 /** A folder in the sidebar's 文件 view: its previewable files and the subfolders that hold some. */

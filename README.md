@@ -22,7 +22,7 @@
 Crabyard 把 Claude Code CLI 放进一个桌面窗口：
 
 - **左边**：按文件夹整理好的全部 Claude Code 对话，点一下接着聊；切到「文件」可以浏览项目里的 .md 和 PDF。
-- **中间**：真正的 `claude` 终端，底部有模型、思考、权限模式、Ultracode、排版按钮；文件预览和对话排版视图也在这里开标签页。
+- **中间**：真正的 `claude` 终端，输入框下方一行 HUD 显示模型、思考强度和上下文用量；每个标签页 × 左边的 ∑ 打开这个对话的排版视图；文件预览和对话排版视图也在这里开标签页。
 - **右边**：这次对话改了哪些文件、Skills 和插件开关、当前用量和用量统计，还有一个 Clawd 浴缸——每个开着的对话是一只像素螃蟹，跟着 Claude 干活。
 
 它**不替代** Claude Code：每个标签页里跑的就是你自己装好的 `claude`，登录、设置、skills、插件、历史对话都是你原来的那一套。Crabyard 只是在外面加了一层看得见、点得到的界面。
@@ -41,18 +41,14 @@ Crabyard 把 Claude Code CLI 放进一个桌面窗口：
     </td>
   </tr>
   <tr>
-    <td align="center" width="50%">
-      <a href="docs/demo-ultracode.mp4"><img src="docs/demo-ultracode.webp" alt="Ultracode switch" width="100%" /></a><br />
-      <sub><b>Ultracode 按钮</b>：一点就发 <code>/effort ultracode</code>，亮起 Claude Code 同款彩虹字和流动边框</sub>
-    </td>
-    <td align="center" width="50%">
-      <a href="docs/demo-characters.mp4"><img src="docs/demo-characters.webp" alt="Character animations" width="100%" /></a><br />
+    <td align="center" colspan="2">
+      <a href="docs/demo-characters.mp4"><img src="docs/demo-characters.webp" alt="Character animations" width="50%" /></a><br />
       <sub><b>角色动画</b>：路飞、鸣人、晓组织、哈利波特、魁地奇</sub>
     </td>
   </tr>
 </table>
 
-<sub>点动图可以看高清视频。浴缸演示里的对话名已打码；其余演示录自测试环境，Ultracode 演示里的 CLI 是测试用的模拟界面。</sub>
+<sub>点动图可以看高清视频。浴缸演示里的对话名已打码；其余演示录自测试环境。</sub>
 
 ## 功能
 
@@ -60,8 +56,10 @@ Crabyard 把 Claude Code CLI 放进一个桌面窗口：
 
 - **全部对话一目了然**：按文件夹列出 `~/.claude/projects` 里的所有 Claude Code 对话，点一下就用 `claude -r` 接着聊；不要的对话可以删（移到废纸篓）。
 - **开箱即用的默认值**：新对话默认用 `bypassPermissions` 权限模式和 `xhigh` 思考强度；在 profile 的额外参数里写了 `--permission-mode` 或 `--effort` 就以你写的为准。
-- **底部按钮**：模型、思考强度、权限模式一点就切。按钮替你把 `/model`、`/effort`、Shift+Tab 敲进 Claude，发送前会先读屏幕，确认输入框是空的、没有弹窗，不会误答权限确认，也不会冲掉你没发的草稿。
-- **Ultracode 按钮**：一点开启 Claude Code 的 ultracode（xhigh 思考 + 动态多 agent 编排，只对当前对话有效），再点关闭。开启时按钮显示 Claude Code 同款的彩虹字、逐字扫光和流动彩虹边框。开不了的时候（没开 dynamic workflows、思考强度被限制、模型不支持 xhigh）直接告诉你原因。
+- **重开对话不改思考强度**：Claude Code 重新打开对话时不会恢复思考强度，Crabyard 从对话记录里读出它上次实际用的强度（包括 `max`），重开时原样带上。
+- **HUD**：Claude Code 输入框下方一行显示模型、思考强度和上下文用量，例如 `[Opus 5.5] ◉ max │ Context ████░░░░░░ 36% (356.1k / 1M)`。
+- **fork 和后台会话**：`/fork` 出来的后台会话马上出现在对话列表里，标着「后台运行中」和「⑂ 分支自…」；点开时还在后台跑就用 `claude attach` 连上，已经结束就接着聊。在空输入框按 ← 把对话转到后台后，重新打开会接上后台那一份，而不是旧副本。
+- **改名同步**：标签页上改的名字会显示在对话列表里，关掉标签、重启后都在；之后在 CLI 里 `/rename` 就以 CLI 的为准，改名时留空则把名字交还给 Claude Code。
 - **git 改动随手看**：鼠标移到会话标签上，弹出分支和改动数量。
 - **新建项目不用起名**：选文件夹就行，名字默认是文件夹名，之后右键可以改。
 
@@ -90,7 +88,7 @@ Crabyard 把 Claude Code CLI 放进一个桌面窗口：
 - **对话 | 文件**：当前项目的卡片上可以在对话列表和文件树之间切换。文件树只显示 `.md`、`.pdf` 和装着它们的文件夹，跳过 `node_modules`、`dist`、`.git` 这类目录；点文件就在新标签页里预览。
 - **Markdown 预览**：用 [KaTeX](https://katex.org) 排版公式，`$…$`、`$$…$$`、`\(…\)`、`\[…\]` 都认；表格、代码块、插图照常显示，文件改了预览自动刷新。代码块里的 `$` 和「$5、$10」这样的价格不会被当成公式。
 - **PDF 预览**：Chromium 自带的 PDF 查看器，缩略图、翻页、缩放、打印都有。
-- **排版视图**：把一个对话里 Claude 的回答排好版——公式、表格、代码块——中间跑过的工具显示成小标签，进行中的对话实时更新。它直接读对话记录（`~/.claude/projects` 里的 jsonl），所以公式是 Claude 原样写出来的；终端里 Claude Code 会把回答重画一遍，常常把 `\\`、`\[`、`$$` 改坏。从终端底部的「∑ 排版」打开当前对话，或者在对话列表里点某条对话的排版按钮。
+- **排版视图**：把一个对话里 Claude 的回答排好版——公式、表格、代码块——中间跑过的工具显示成小标签，进行中的对话实时更新。它直接读对话记录（`~/.claude/projects` 里的 jsonl），所以公式是 Claude 原样写出来的；终端里 Claude Code 会把回答重画一遍，常常把 `\\`、`\[`、`$$` 改坏。从每个 Claude 标签页 × 左边的 ∑ 打开这个对话，或者在对话列表里点某条对话的排版按钮。
 
 ### 右边栏
 
@@ -101,20 +99,21 @@ Crabyard 把 Claude Code CLI 放进一个桌面窗口：
 - **当前用量**：5 小时和每周额度两个圆环，数据来自 Claude Code 的 statusLine；也可以停靠到底部终端旁边。
 - **用量统计**：按天、模型、项目统计的费用和 token。
 
-另外，上下文用量显示在 Claude Code 输入框下方；终端和「本对话修改」的开关在侧边栏顶部。
+另外，模型、思考强度和上下文用量显示在 Claude Code 输入框下方的 HUD 里；终端和「本对话修改」的开关在侧边栏顶部。
 
 ## 和直接用 Claude Code、和 Vibeyard 有什么区别
 
 | | 直接在终端里用 Claude Code | Vibeyard（上游） | Crabyard |
 |---|---|---|---|
 | 历史对话 | `claude -r` 只列当前目录的对话 | 按项目管理它自己开的会话 | 全部 `~/.claude/projects` 对话按文件夹列出，一点接着聊，可以删 |
-| 切模型、思考、权限模式 | 敲 `/model`、`/effort`、按 Shift+Tab | 没有 | 底部按钮一点就切，读屏幕确认安全后才发送 |
-| Ultracode | 敲 `/effort ultracode` | 没有 | 专门的开关按钮，带 Claude Code 同款动画，开不了会说明原因 |
+| 当前模型、思考强度 | `/model`、`/effort` 查看，或自己配 statusLine | 没有 | 输入框下方的 HUD 一直显示 |
+| 重开对话时的思考强度 | 回到默认值（`max` 存不进设置） | 同 Claude Code | 沿用对话上次实际用的强度 |
+| `/fork` 后台会话 | 在 agents 视图里管理 | 没有专门处理 | 列在对话列表里，点开自动 attach |
 | 改了哪些文件 | 翻终端输出 | 项目文件树 | 本轮、本对话修改列表 + diff，包括子代理改的 |
 | 用量 | `/usage`、自己配 statusLine | 每个会话的费用和上下文 | 5 小时、每周额度圆环 + 按天、模型、项目的统计 |
 | Skills 和插件 | 手改 settings.json、敲 `claude plugin` | 没有 | 开关按钮 |
 | 对话状态 | 终端里的文字 | 标签页上的彩色圆点 | 圆点 + Clawd 浴缸（晕倒、倒下、子代理都看得见） |
-| 默认值 | 手动确认、默认思考强度 | 同 Claude Code | `bypassPermissions` + `xhigh` |
+| 默认值 | 手动确认、默认思考强度 | 同 Claude Code | 新对话 `bypassPermissions` + `xhigh` |
 | 看 .md、PDF 和公式 | 终端里是原始文字，回答里的公式常被重画改坏 | 文件查看，Markdown 不排公式 | 文件树 + 预览，公式用 KaTeX 排版，对话排版视图 |
 | 界面 | 终端 | 深色、浅色主题 | Claude 暖色主题 + 衬线字体，像素螃蟹和动画 |
 
@@ -139,14 +138,14 @@ npm run app
 - [clawd-tank](https://github.com/marciogranzotto/clawd-tank) — Marcio Granzotto Rodrigues，MIT。浴缸里的螃蟹动画和夜空背景（`src/renderer/assets/clawd/`，附原许可证）。
 - [clawd-avatar-skill](https://github.com/YANZHANLIN/clawd-avatar-skill) — YANZHANLIN。Clawd 动画的画法和规格（动画模式、场景模式、帽子、道具和角色预设）。
 - [KaTeX](https://github.com/KaTeX/KaTeX) — MIT。Markdown 预览和排版视图里的公式排版。
-- Ultracode 按钮的动画参考了 [pi](https://github.com/earendil-works/pi) 的 rainbow-editor 示例（扫光节奏，MIT）和 [Magic UI](https://github.com/magicuidesign/magicui) 的 Rainbow Button（流动彩虹边框的写法，MIT），配色取自 Claude Code 自己的主题。只借鉴了做法，没有复制代码。
 
 ## English
 
 Crabyard wraps the Claude Code CLI in a desktop window. Every tab runs your own `claude`, with your login, settings, skills and plugins. Around it you get:
 
 - all your Claude Code conversations, grouped by folder, resumable in one click;
-- one-click model, effort, permission-mode and Ultracode switches under each session;
+- a HUD line under Claude's prompt with the model, effort level and context use, and reopened conversations that keep the effort they last ran at;
+- `/fork` background sessions listed in the sidebar and opened with `claude attach`, and tab names that follow their conversations into the sidebar;
 - a Files view of each project's Markdown and PDF files, previewed in tabs with formulas typeset by KaTeX, and a typeset view of any conversation read straight from its transcript;
 - the files each conversation changed, with diffs;
 - Skills and plugin switches;

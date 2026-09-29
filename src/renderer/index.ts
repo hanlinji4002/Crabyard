@@ -1,5 +1,4 @@
 import { appState } from './state.js';
-import { updateSessionControlsStatus } from './components/session-controls.js';
 import { initSidebar, promptNewProject } from './components/sidebar.js';
 import { initUsagePanel } from './components/usage-panel.js';
 import { noteCrashedConversation } from './components/clawd-tank.js';
@@ -98,7 +97,6 @@ async function main(): Promise<void> {
     if (!appState.hasSession(sessionId)) return;
     logDebugEvent('costData', sessionId, costData);
     setCostData(sessionId, costData);
-    updateSessionControlsStatus(sessionId, costData);
     if (costData.rate_limits) updatePlanUsage(costData.rate_limits);
     if (appState.activeSession?.id === sessionId) scheduleChangesRefresh();
     const contextBefore = getContext(sessionId);
@@ -147,6 +145,11 @@ async function main(): Promise<void> {
     if (!appState.hasSession(sessionId)) return;
     logDebugEvent('inspectorEvents', sessionId, { count: events.length });
     addInspectorEvents(sessionId, events);
+  });
+
+  window.vibeyard.session.onConversationResolved((sessionId, cliSessionId, attachShort, reason) => {
+    logDebugEvent('conversationResolved', sessionId, { cliSessionId, attachShort, reason });
+    appState.followConversation(sessionId, cliSessionId, attachShort, reason);
   });
 
   window.vibeyard.session.onCliSessionId((sessionId, cliSessionId) => {

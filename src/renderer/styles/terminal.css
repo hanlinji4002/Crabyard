@@ -310,9 +310,9 @@
 }
 
 /* ============================================================
-   Session status line — the Claude pills on the left, the CLI profile
-   (only with several profiles) on the right. Context shows inside the
-   conversation instead, as the statusLine's claude-hud style bar.
+   Session status line — the CLI profile, shown only with several
+   profiles. Model, effort and context show inside the conversation
+   instead, as the statusLine's claude-hud style line.
    ============================================================ */
 .session-status-bar {
   height: 34px;

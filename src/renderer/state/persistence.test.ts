@@ -113,3 +113,17 @@ describe('hydrateLoadedState', () => {
     expect(prefs.debugMode).toBe(false);
   });
 });
+
+describe('conversation titles persistence', () => {
+  it('hydrateLoadedState seeds names of user-renamed open tabs', () => {
+    const state = baseState({ name: '行程整理', userRenamed: true, cliSessionId: 'cli-1' });
+    hydrateLoadedState(state, {} as PersistedState['preferences']);
+    expect(state.conversationTitles).toEqual({ 'cli-1': { title: '行程整理', at: expect.any(Number) } });
+  });
+
+  it('serializeForSave keeps the map', () => {
+    const state = baseState({});
+    state.conversationTitles = { 'cli-1': { title: 'Name', at: 1 } };
+    expect(serializeForSave(state).conversationTitles).toEqual({ 'cli-1': { title: 'Name', at: 1 } });
+  });
+});

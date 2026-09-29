@@ -3,7 +3,7 @@ import type { CostData, ProviderConfig, GitWorktree, ProviderId, CliProviderMeta
 
 export interface VibeyardApi {
   pty: {
-    create(sessionId: string, cwd: string, cliSessionId: string | null, isResume: boolean, extraArgs?: string, providerId?: ProviderId, initialPrompt?: string, systemPrompt?: string, envVars?: string, configDir?: string): Promise<void>;
+    create(sessionId: string, cwd: string, cliSessionId: string | null, isResume: boolean, extraArgs?: string, providerId?: ProviderId, initialPrompt?: string, systemPrompt?: string, envVars?: string, configDir?: string, attachShort?: string): Promise<void>;
     createShell(sessionId: string, cwd: string): Promise<void>;
     write(sessionId: string, data: string): void;
     resize(sessionId: string, cols: number, rows: number): void;
@@ -21,6 +21,8 @@ export interface VibeyardApi {
     onClaudeSessionId(callback: (sessionId: string, claudeSessionId: string) => void): () => void;
     onCostData(callback: (sessionId: string, costData: CostData) => void): () => void;
     onSessionName(callback: (sessionId: string, name: string, cliSessionId: string) => void): () => void;
+    /** The conversation a resumed tab actually opened (a background session it followed), when not the one asked for. */
+    onConversationResolved(callback: (sessionId: string, cliSessionId: string, attachShort: string | null, reason: 'handoff' | 'job' | null) => void): () => void;
     resyncStatus(): void;
   };
   fs: {
@@ -91,9 +93,11 @@ export interface VibeyardApi {
   claudeHistory: {
     list(force?: boolean): Promise<ClaudeConversationList>;
     usage(force?: boolean): Promise<ClaudeUsageReport>;
-    trash(transcriptPath: string): Promise<{ ok: boolean; error?: string }>;
+    trash(transcriptPath: string): Promise<{ ok: boolean; error?: string; reason?: 'open' | 'background' | 'recent' }>;
     changes(cliSessionId: string): Promise<ConversationChanges | null>;
     transcriptPath(cliSessionId: string): Promise<string | null>;
+    onChanged(callback: () => void): () => void;
+    stopBackground(short: string, profileId?: string): Promise<{ ok: boolean; error?: string }>;
   };
   clipboard: {
     write(text: string, source?: ClipboardSource): Promise<void>;

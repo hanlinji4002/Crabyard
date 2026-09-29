@@ -280,7 +280,7 @@ describe('terminal pending prompt injection', () => {
     setPendingPrompt('claude-1', 'fix the bug');
     await spawnTerminal('claude-1');
 
-    expect(mockPtyCreate).toHaveBeenCalledWith('claude-1', '/project', null, false, '', 'claude', 'fix the bug', undefined, '', undefined);
+    expect(mockPtyCreate).toHaveBeenCalledWith('claude-1', '/project', null, false, '', 'claude', 'fix the bug', undefined, '', undefined, undefined);
     expect(mockPtyWrite).not.toHaveBeenCalled();
   });
 
@@ -292,7 +292,7 @@ describe('terminal pending prompt injection', () => {
     setPendingPrompt('codex-1', 'fix the bug');
     await spawnTerminal('codex-1');
 
-    expect(mockPtyCreate).toHaveBeenCalledWith('codex-1', '/project', null, false, '', 'codex', 'fix the bug', undefined, '', undefined);
+    expect(mockPtyCreate).toHaveBeenCalledWith('codex-1', '/project', null, false, '', 'codex', 'fix the bug', undefined, '', undefined, undefined);
     expect(mockPtyWrite).not.toHaveBeenCalled();
   });
 
@@ -303,7 +303,7 @@ describe('terminal pending prompt injection', () => {
     createTerminalPane('claude-2', '/project', null, false, '', 'claude');
     await spawnTerminal('claude-2');
 
-    expect(mockPtyCreate).toHaveBeenCalledWith('claude-2', '/project', null, false, '', 'claude', undefined, undefined, '', undefined);
+    expect(mockPtyCreate).toHaveBeenCalledWith('claude-2', '/project', null, false, '', 'claude', undefined, undefined, '', undefined, undefined);
   });
 
   it('does not inject pending prompt from PTY output', async () => {
@@ -746,6 +746,25 @@ describe('profile label on the status bar', () => {
     refreshProfileLabels();
 
     expect(pill(instance)).toBe('Work');
+  });
+
+  it('refits a shown pane when the bar comes or goes, so it never covers the prompt box', async () => {
+    const { appState } = await import('../state.js');
+    const { createTerminalPane, refreshProfileLabels } = await import('./terminal-pane.js');
+    appState.profiles.push(makeProfile('work', 'Work'));
+    const instance = makePane(createTerminalPane, 'pb-6', 'claude', '/cfg/work');
+    instance.element.classList.remove('hidden');
+    const fit = vi.spyOn(instance.fitAddon, 'fit');
+
+    appState.profiles.push(makeProfile('personal', 'Personal'));
+    refreshProfileLabels();
+    vi.runAllTimers();
+    expect(fit).toHaveBeenCalledTimes(1);
+
+    // Nothing changed: no refit.
+    refreshProfileLabels();
+    vi.runAllTimers();
+    expect(fit).toHaveBeenCalledTimes(1);
   });
 });
 

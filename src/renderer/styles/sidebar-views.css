@@ -327,6 +327,32 @@
   background: var(--bg-hover);
 }
 
+/* Stops a /fork running in the background (conversation-tree.ts); shows like delete. */
+.conv-stop {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  margin: 1px -2px 0 0;
+  padding: 0;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.conv-item:hover .conv-stop {
+  display: flex;
+}
+
+.conv-stop:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
 .conv-more {
   display: block;
   width: 100%;

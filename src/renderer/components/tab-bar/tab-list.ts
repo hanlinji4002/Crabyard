@@ -22,6 +22,18 @@ import { hideTabContextMenu, setActiveContextMenu, positionMenu } from './menu.j
 import { tabListEl } from './dom.js';
 import { scrollDelta, bankScroll, planScroll, commitScroll } from './tab-scroll.js';
 import { t } from '../../i18n.js';
+import { openSessionTypesetView } from '../../open-file-reader.js';
+import { flashHoverCard } from '../hover-card.js';
+import { getConversations } from '../../claude-history-store.js';
+
+/**
+ * When a tab's ∑ was last clicked. Opening the typeset view adds a tab and can
+ * scroll the strip, so the second click of a double click lands on whichever
+ * tab slid under the pointer; it must not switch to or rename that tab.
+ */
+let typesetClickedAt = -Infinity;
+const TYPESET_DOUBLE_CLICK_MS = 500;
+const justClickedTypeset = (): boolean => performance.now() - typesetClickedAt < TYPESET_DOUBLE_CLICK_MS;
 
 function buildTooltip(status: SessionStatus, cliSessionId?: string): string {
   const statusLine = t('tab.tooltip.statusPrefix', { status });
@@ -48,6 +60,16 @@ function startRename(tab: HTMLElement, project: ProjectRecord, session: SessionR
     input.remove();
     if (newName && newName !== session.name) {
       appState.renameSession(project.id, session.id, newName, true);
+    } else if (!newName && session.userRenamed) {
+      // An empty name hands naming back to Claude Code: the transcript's title
+      // until the CLI reports its own again. That goes for the conversation
+      // carrying this one on in a background session, too.
+      const list = getConversations() ?? [];
+      const id = session.cliSessionId;
+      const carriers = id ? list.filter((c) => c.continuedFrom?.includes(id)) : [];
+      const conv = list.find((c) => c.cliSessionId === id) ?? carriers[0];
+      appState.clearConversationName(project.id, session.id, conv?.title, carriers.map((c) => c.cliSessionId));
+      window.vibeyard.session.resyncStatus();
     } else {
       render();
     }
@@ -320,16 +342,21 @@ export function render(): void {
     const namePrefix = isDiff ? '<span class="tab-diff-badge">DIFF</span> ' : isFileReader ? '<span class="tab-file-badge">FILE</span> ' : isTeam ? `<span class="tab-team-badge">${ICON_TEAM}</span> ` : !isSpecial ? providerIcon : '';
     const shareIndicator = sharing ? `<span class="tab-share-indicator" title="${esc(t('tab.shareIndicatorTooltip'))}"></span>` : '';
     const statusDot = isSpecial ? '' : `<span class="tab-status ${getStatus(session.id)}"></span>`;
+    // 排版视图 of this tab's own conversation, beside the close button (Claude sessions only).
+    const typesettable = isCliSession(session) && providerId === 'claude';
+    const typesetButton = typesettable ? `<button type="button" class="tab-typeset" aria-label="${esc(t('preview.openConversationView'))}" title="${esc(t('tab.typesetTooltip'))}">∑</button>` : '';
     tab.innerHTML = `
       ${statusDot}
       <span class="tab-name">${namePrefix}${esc(displayName)}</span>
       ${shareIndicator}
+      ${typesetButton}
       <span class="tab-close" title="${esc(t('tab.closeTooltip'))}">&times;</span>
     `;
 
     // Click to switch
     tab.addEventListener('click', (e) => {
-      if ((e.target as HTMLElement).classList.contains('tab-close')) return;
+      if ((e.target as HTMLElement).closest('.tab-close, .tab-typeset')) return;
+      if (e.detail > 1 && justClickedTypeset()) return;
       if (tab.querySelector('.tab-name input')) return;
       if (session.id !== project.activeSessionId) {
         appState.setActiveSession(project.id, session.id);
@@ -345,7 +372,9 @@ export function render(): void {
     });
 
     // Double-click to rename
-    tab.addEventListener('dblclick', () => startRename(tab, project, session));
+    tab.addEventListener('dblclick', () => {
+      if (!justClickedTypeset()) startRename(tab, project, session);
+    });
 
     // Right-click context menu
     tab.addEventListener('contextmenu', (e) => {
@@ -357,6 +386,17 @@ export function render(): void {
     tab.querySelector('.tab-close')!.addEventListener('click', () => {
       closeSessionWithConfirm(project.id, session.id);
     });
+
+    const typesetEl = tab.querySelector<HTMLElement>('.tab-typeset');
+    if (typesetEl) {
+      typesetEl.addEventListener('click', () => {
+        typesetClickedAt = performance.now();
+        void openSessionTypesetView(project.id, session.id).then((opened) => {
+          if (!opened && typesetEl.isConnected) flashHoverCard(typesetEl, t('preview.notStarted'));
+        });
+      });
+      typesetEl.addEventListener('dblclick', (e) => e.stopPropagation());
+    }
 
     tab.addEventListener('dragstart', (e) => {
       e.dataTransfer!.effectAllowed = 'move';

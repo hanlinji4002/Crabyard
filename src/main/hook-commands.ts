@@ -25,6 +25,18 @@ import { STOP_INFLIGHT_TRUST_MS } from '../shared/constants';
 let scriptsInstalled = false;
 
 /**
+ * Python that ends a hook script run by a background session Claude Code hosts
+ * in its daemon (/fork, /background, the agents view). The daemon keeps the
+ * environment of the tab whose CLI started it, CLAUDE_IDE_SESSION_ID included,
+ * so without this every such session would report as that tab: its session id,
+ * name, cost and status would take the tab over. Claude Code 2.1.283 strips
+ * CLAUDE_CODE_SESSION_KIND from hook environments but keeps CLAUDE_JOB_DIR; the
+ * kind is checked as well in case a later version passes it on.
+ */
+export const PY_SKIP_BACKGROUND_SESSION = `if os.environ.get('CLAUDE_JOB_DIR') or os.environ.get('CLAUDE_CODE_SESSION_KIND','') in ('bg','daemon','daemon-worker'):
+    sys.exit(0)`;
+
+/**
  * How long (ms) an in-flight subagent count is trusted before the Stop writer
  * falls back to 'completed'. Guards against a lost SubagentStop (which is
  * known to be unreliable, anthropics/claude-code#27755) wedging a session in
@@ -45,6 +57,7 @@ export function installHookScripts(): void {
 
   // status_writer.py — writes event:status to .status file
   installEventScript('status_writer.py', `import sys,os
+${PY_SKIP_BACKGROUND_SESSION}
 event=sys.argv[1]
 status=sys.argv[2]
 sid=os.environ.get(sys.argv[3],'')
@@ -86,6 +99,7 @@ if sid:
   //
   // argv: [1]=session-id env var, [2]=status_dir, [3]=stale_ms, [4]=marker.
   installEventScript('stop_status_writer.py', `import sys,os,json,time
+${PY_SKIP_BACKGROUND_SESSION}
 sid=os.environ.get(sys.argv[1],'')
 status_dir=sys.argv[2]
 try:
@@ -136,6 +150,7 @@ with open(os.path.join(status_dir,sid+'.status'),'w') as f:
 
   // session_id_capture.py — captures session_id from JSON stdin
   installEventScript('session_id_capture.py', `import sys,json,os
+${PY_SKIP_BACKGROUND_SESSION}
 try:
     d=json.load(sys.stdin)
 except:
@@ -154,6 +169,7 @@ if sid_env and claude_sid:
   // must not raise a missing-tool insight. Random suffix so several failures in
   // one turn can't collide.
   installEventScript('tool_failure_capture.py', `import sys,json,os,random,string
+${PY_SKIP_BACKGROUND_SESSION}
 try:
     d=json.load(sys.stdin)
 except:
@@ -190,7 +206,9 @@ export function statusCmd(
     const dir = STATUS_DIR.replace(/\\/g, '/');
     return `python "${py}" "${event}" "${status}" "${sessionIdVar}" "${dir}" "${hookMarker}"`;
   }
-  return `sh -c 'mkdir -p ${STATUS_DIR} && echo ${event}:${status} > ${STATUS_DIR}/$${sessionIdVar}.status ${hookMarker}'`;
+  // Skips background sessions (see PY_SKIP_BACKGROUND_SESSION) and a Claude run
+  // outside any tab, which would otherwise write a stray STATUS_DIR/.status.
+  return `sh -c 'if [ -z "$CLAUDE_JOB_DIR" ] && [ -n "$${sessionIdVar}" ]; then mkdir -p ${STATUS_DIR} && echo ${event}:${status} > ${STATUS_DIR}/$${sessionIdVar}.status; fi ${hookMarker}'`;
 }
 
 /**

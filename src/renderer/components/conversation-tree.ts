@@ -32,6 +32,7 @@ const PAGE_SIZE = 8;
 const TREE_STALE_MS = 15_000;
 const ICON_TYPESET = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/></svg>';
 const ICON_FOLDER = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
+const ICON_STOP = '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor"/></svg>';
 const ICON_TRASH = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
 
 export interface ConversationTreeHooks {
@@ -110,9 +111,20 @@ function buildGroups(conversations: ClaudeConversation[]): FolderGroup[] {
   return [...groups.values()].sort((a, b) => b.lastActivity - a.lastActivity || a.name.localeCompare(b.name));
 }
 
+/**
+ * The row's title: a name the user gave the conversation in Crabyard (tab
+ * rename) wins over the one Claude Code keeps in the transcript, unless they
+ * renamed it in the CLI since; a conversation carried on in a background
+ * session keeps the name given to the one it carries on.
+ */
+export function conversationTitle(conv: ClaudeConversation): string {
+  return appState.conversationTitleFor(conv) ?? conv.title;
+}
+
 function matchesFilter(conv: ClaudeConversation): boolean {
   if (!filterText) return true;
   return (
+    conversationTitle(conv).toLowerCase().includes(filterText) ||
     conv.title.toLowerCase().includes(filterText) ||
     conv.firstPrompt.toLowerCase().includes(filterText) ||
     (conv.gitBranch?.toLowerCase().includes(filterText) ?? false) ||
@@ -136,7 +148,7 @@ export function openConversation(conv: ClaudeConversation): void {
   } else if (appState.activeProjectId !== project.id) {
     appState.setActiveProject(project.id);
   }
-  const name = conv.title || conv.cliSessionId.slice(0, 8);
+  const name = conversationTitle(conv) || conv.cliSessionId.slice(0, 8);
   appState.openCliSession(project.id, conv.cliSessionId, name, 'claude', conv.profileId);
 }
 
@@ -149,27 +161,51 @@ function ensureProjectFor(group: FolderGroup): ProjectRecord | undefined {
   return appState.addProject(group.name, group.path);
 }
 
-function openSessionsByCliId(): Map<string, string> {
+/**
+ * Which tab each conversation is open in. A tab still on a conversation that
+ * was handed off to a background session counts as open on the one carrying it
+ * on (its CLI shows that one in the agents view).
+ */
+function openSessionsByCliId(conversations: ClaudeConversation[]): Map<string, string> {
   const map = new Map<string, string>();
   for (const project of appState.projects) {
     for (const session of project.sessions) {
       if (session.cliSessionId) map.set(session.cliSessionId, session.id);
     }
   }
+  for (const conv of conversations) {
+    if (map.has(conv.cliSessionId)) continue;
+    const tab = conv.continuedFrom?.map((id) => map.get(id)).find(Boolean);
+    if (tab) map.set(conv.cliSessionId, tab);
+  }
   return map;
 }
 
-/** Ask first, then move the conversation's transcript to the Trash (restorable). */
-function confirmDeleteConversation(conv: ClaudeConversation): void {
-  const title = conv.title || t('conversations.untitled');
-  showConfirmDialog(t('conversations.deleteTitle'), t('conversations.deleteMessage', { title }), {
-    confirmLabel: t('conversations.deleteConfirm'),
+/** Bring an open conversation's tab forward, in whichever project it is. */
+function focusTab(sessionId: string): void {
+  const project = appState.projects.find((p) => p.sessions.some((s) => s.id === sessionId));
+  if (!project) return;
+  if (appState.activeProjectId !== project.id) appState.setActiveProject(project.id);
+  appState.setActiveSession(project.id, sessionId);
+}
+
+/**
+ * Ask first (it interrupts whatever the session is doing), then stop a
+ * background session with `claude stop`. Its conversation is kept, and the
+ * row turns into an ordinary one that `claude -r` picks up again.
+ */
+function confirmStopBackground(conv: ClaudeConversation): void {
+  const short = conv.background?.short;
+  if (!short) return;
+  const title = conversationTitle(conv) || t('conversations.untitled');
+  showConfirmDialog(t('conversations.stopTitle'), t('conversations.stopMessage', { title }), {
+    confirmLabel: t('conversations.stopConfirm'),
     cancelLabel: t('preferences.cancel'),
     onConfirm: () => {
-      void window.vibeyard.claudeHistory.trash(conv.transcriptPath).then((result) => {
-        void refreshConversations(true);
+      void window.vibeyard.claudeHistory.stopBackground(short, conv.profileId).then((result) => {
+        void refreshConversations(false, true);
         if (result.ok) return;
-        showConfirmDialog(t('conversations.deleteTitle'), t('conversations.deleteFailed', { error: result.error ?? '' }), {
+        showConfirmDialog(t('conversations.stopTitle'), t('conversations.stopFailed', { error: result.error ?? '' }), {
           confirmLabel: t('preferences.done'),
           onConfirm: () => {},
         });
@@ -178,32 +214,82 @@ function confirmDeleteConversation(conv: ClaudeConversation): void {
   });
 }
 
+/** Ask first, then move the conversation's transcript to the Trash (restorable). */
+function confirmDeleteConversation(conv: ClaudeConversation): void {
+  const title = conversationTitle(conv) || t('conversations.untitled');
+  showConfirmDialog(t('conversations.deleteTitle'), t('conversations.deleteMessage', { title }), {
+    confirmLabel: t('conversations.deleteConfirm'),
+    cancelLabel: t('preferences.cancel'),
+    onConfirm: () => {
+      void window.vibeyard.claudeHistory.trash(conv.transcriptPath).then((result) => {
+        void refreshConversations(true);
+        // A name the user gave it stays: the transcript can come back from the Trash.
+        if (result.ok) return;
+        const refused = result.reason === 'open' ? t('conversations.deleteOpen')
+          : result.reason === 'background' ? t('conversations.deleteBackground')
+          : result.reason === 'recent' ? t('conversations.deleteRecent')
+          : t('conversations.deleteFailed', { error: result.error ?? '' });
+        showConfirmDialog(t('conversations.deleteTitle'), refused, {
+          confirmLabel: t('preferences.done'),
+          onConfirm: () => {},
+        });
+      });
+    },
+  });
+}
+
+/** Title of the conversation a /fork came from, when it is in the list. */
+function forkParentTitle(conv: ClaudeConversation): string | undefined {
+  if (!conv.forkOf) return undefined;
+  const parent = getConversations()?.find((c) => c.cliSessionId === conv.forkOf);
+  return parent ? conversationTitle(parent) || undefined : undefined;
+}
+
 function buildConversationRow(conv: ClaudeConversation, openSessionId: string | undefined, now: number, locale: string, onTypeset: () => void): HTMLElement {
   const row = document.createElement('div');
   const unavailable = !conv.projectCwd || !conv.cwdExists;
-  row.className = 'conv-item' + (openSessionId ? ' open' : '') + (unavailable ? ' unavailable' : '');
+  // Claude Code is running it in its daemon (/fork, /background): opening it
+  // attaches to that session (see pty-manager), and it can't be deleted.
+  const liveBackground = !!conv.background?.live;
+  row.className = 'conv-item' + (openSessionId ? ' open' : '') + (unavailable ? ' unavailable' : '') + (liveBackground ? ' background' : '');
   if (openSessionId) row.dataset.sessionId = openSessionId;
   const status = openSessionId ? getStatus(openSessionId) : null;
   const meta = [formatRelativeTime(conv.updatedAt, now, locale), t('conversations.turns', { count: conv.turns })];
+  if (liveBackground) meta.unshift(t('conversations.background'));
+  const parentTitle = forkParentTitle(conv);
+  if (parentTitle) meta.push(t('conversations.forkOf', { title: parentTitle }));
   if (conv.gitBranch) meta.push(conv.gitBranch);
   // An open conversation is still being written to, so it can't be deleted
-  // until its tab is closed.
-  const deletable = !openSessionId;
+  // until its tab is closed; the same goes for one running in the background.
+  const deletable = !openSessionId && !liveBackground && !!conv.transcriptPath;
+  const typesettable = !!conv.transcriptPath;
+  const title = conversationTitle(conv);
   row.innerHTML = `
     <span class="conv-dot${status ? ` project-status ${status}` : ''}" aria-hidden="true"></span>
     <div class="conv-main">
-      <div class="conv-title">${esc(conv.title || t('conversations.untitled'))}</div>
+      <div class="conv-title">${esc(title || t('conversations.untitled'))}</div>
       <div class="conv-meta">${esc(meta.join(' · '))}</div>
     </div>
-    <button type="button" class="conv-typeset" aria-label="${esc(t('preview.openConversationView'))}">${ICON_TYPESET}</button>
+    ${liveBackground ? `<button type="button" class="conv-stop" aria-label="${esc(t('conversations.stopBackground'))}">${ICON_STOP}</button>` : ''}
+    ${typesettable ? `<button type="button" class="conv-typeset" aria-label="${esc(t('preview.openConversationView'))}">${ICON_TYPESET}</button>` : ''}
     ${deletable ? `<button type="button" class="conv-delete" aria-label="${esc(t('conversations.delete'))}">${ICON_TRASH}</button>` : ''}
   `;
-  const typesetBtn = row.querySelector<HTMLButtonElement>('.conv-typeset')!;
-  attachHoverCard(typesetBtn, t('preview.openConversationView'));
-  typesetBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    onTypeset();
-  });
+  const typesetBtn = row.querySelector<HTMLButtonElement>('.conv-typeset');
+  if (typesetBtn) {
+    attachHoverCard(typesetBtn, t('preview.openConversationView'));
+    typesetBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      onTypeset();
+    });
+  }
+  const stopBtn = row.querySelector<HTMLButtonElement>('.conv-stop');
+  if (stopBtn) {
+    attachHoverCard(stopBtn, t('conversations.stopBackground'));
+    stopBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      confirmStopBackground(conv);
+    });
+  }
   const deleteBtn = row.querySelector<HTMLButtonElement>('.conv-delete');
   if (deleteBtn) {
     attachHoverCard(deleteBtn, t('conversations.delete'));
@@ -216,9 +302,10 @@ function buildConversationRow(conv: ClaudeConversation, openSessionId: string | 
     e.preventDefault();
     e.stopPropagation();
     showContextMenu(e.clientX, e.clientY, [
-      { label: t('preview.openConversationView'), action: onTypeset },
+      { label: t('preview.openConversationView'), action: onTypeset, disabled: !typesettable },
+      ...(liveBackground ? [{ label: t('conversations.stopBackground'), action: () => confirmStopBackground(conv) }] : []),
       {
-        label: deletable ? t('conversations.delete') : t('conversations.deleteOpen'),
+        label: deletable ? t('conversations.delete') : liveBackground ? t('conversations.deleteBackground') : t('conversations.deleteOpen'),
         separatorBefore: true,
         danger: deletable,
         disabled: !deletable,
@@ -226,13 +313,15 @@ function buildConversationRow(conv: ClaudeConversation, openSessionId: string | 
       },
     ]);
   });
+  const command = liveBackground && conv.background ? `claude attach ${conv.background.short}` : `claude -r ${conv.cliSessionId}`;
   const hint = unavailable
     ? t('conversations.folderMissing')
-    : [conv.firstPrompt && conv.firstPrompt !== conv.title ? conv.firstPrompt : '', `claude -r ${conv.cliSessionId}`]
+    : [conv.firstPrompt && conv.firstPrompt !== title ? conv.firstPrompt : '', command]
       .filter(Boolean)
       .join('\n');
   row.title = hint;
-  if (!unavailable) row.addEventListener('click', () => openConversation(conv));
+  row.dataset.cliSessionId = conv.cliSessionId;
+  if (!unavailable) row.addEventListener('click', () => (openSessionId ? focusTab(openSessionId) : openConversation(conv)));
   return row;
 }
 
@@ -346,7 +435,7 @@ function buildFolder(group: FolderGroup, hooks: ConversationTreeHooks, openIds: 
     for (const conv of list.slice(0, limit)) {
       const onTypeset = () => {
         const project = ensureProjectFor(group);
-        if (project) openConversationView(project.id, conv.transcriptPath, conv.title);
+        if (project) openConversationView(project.id, conv.transcriptPath, conversationTitle(conv));
       };
       listEl.appendChild(buildConversationRow(conv, openIds.get(conv.cliSessionId), now, locale, onTypeset));
     }
@@ -512,7 +601,7 @@ export function renderConversationTree(container: HTMLElement, hooks: Conversati
   }
 
   const groups = buildGroups(conversations ?? []);
-  const openIds = openSessionsByCliId();
+  const openIds = openSessionsByCliId(conversations ?? []);
   const now = Date.now();
   const locale = getLocale();
   let shown = 0;
@@ -529,4 +618,23 @@ export function renderConversationTree(container: HTMLElement, hooks: Conversati
     empty.textContent = filterText ? t('conversations.noMatches') : t('conversations.none');
     container.appendChild(empty);
   }
+}
+
+/**
+ * Show changed conversation names in place, without rebuilding the tree: a
+ * rename is often finished by a click into the sidebar, and replacing the rows
+ * under the pointer would swallow that click.
+ */
+export function refreshConversationTitles(container: HTMLElement): void {
+  const byId = new Map((getConversations() ?? []).map((c) => [c.cliSessionId, c]));
+  for (const row of container.querySelectorAll<HTMLElement>('.conv-item[data-cli-session-id]')) {
+    const conv = byId.get(row.dataset.cliSessionId!);
+    const titleEl = row.querySelector('.conv-title');
+    if (conv && titleEl) titleEl.textContent = conversationTitle(conv) || t('conversations.untitled');
+  }
+}
+
+/** Whether rows are being filtered by the search box (names decide what matches). */
+export function isConversationFilterActive(): boolean {
+  return !!filterText;
 }

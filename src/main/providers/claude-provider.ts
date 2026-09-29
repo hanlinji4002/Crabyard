@@ -13,6 +13,11 @@ import { resolveBinary, validateBinaryExists } from './resolve-binary';
 import { MAX_INDEX_CHARS_PER_SESSION, TRANSCRIPT_TEXT_SEPARATOR, UUID_RE } from './transcript-utils';
 import { writeAgentFile, deleteAgentFile } from './agent-files';
 import { loadState } from '../store';
+import { readLastTranscriptEffort } from './transcript-effort';
+import { backgroundJob, liveBackgroundJob } from '../claude-jobs';
+import { readContinuedIn, transcriptHasMessages } from '../claude-history';
+import type { ResolvedConversation } from './provider';
+import { isClaudeEffortLevel } from '../../shared/effort';
 
 const binaryCache = { path: null as string | null };
 
@@ -75,6 +80,10 @@ export class ClaudeProvider implements CliProvider {
   buildEnv(sessionId: string, baseEnv: Record<string, string>, opts?: { configDir?: string }): Record<string, string> {
     const env = { ...baseEnv };
     delete env.CLAUDE_CODE; // avoid subprocess detection conflicts
+    // Markers of a Claude Code background session: the hook scripts stay silent
+    // under them (see PY_SKIP_BACKGROUND_SESSION), so a Crabyard started from
+    // such a session must not hand them to its own tabs.
+    for (const key of ['CLAUDE_JOB_DIR', 'CLAUDE_CODE_SESSION_KIND', 'CLAUDE_BG_BACKEND', 'CLAUDE_BG_SOURCE']) delete env[key];
     env.CLAUDE_IDE_SESSION_ID = sessionId;
     env.PATH = getFullPath();
     // Profile support: point Claude Code at an isolated config dir (separate
@@ -83,7 +92,7 @@ export class ClaudeProvider implements CliProvider {
     return env;
   }
 
-  buildArgs(opts: { cliSessionId: string | null; isResume: boolean; extraArgs: string; initialPrompt?: string; systemPrompt?: string }): string[] {
+  buildArgs(opts: { cliSessionId: string | null; isResume: boolean; extraArgs: string; initialPrompt?: string; systemPrompt?: string; effort?: string }): string[] {
     const args: string[] = [];
     if (opts.cliSessionId) {
       if (opts.isResume) {
@@ -98,15 +107,56 @@ export class ClaudeProvider implements CliProvider {
     if (opts.initialPrompt) {
       args.push(opts.initialPrompt);
     }
-    const extra = opts.extraArgs ? opts.extraArgs.split(/\s+/).filter(Boolean) : [];
+    const resuming = opts.isResume && !!opts.cliSessionId;
+    let extra = opts.extraArgs ? opts.extraArgs.split(/\s+/).filter(Boolean) : [];
+    // A resumed conversation keeps the effort it last actually ran at, as its
+    // transcript records it: Claude Code restores effort only from --effort or
+    // settings, never from the transcript. That beats an --effort the tab was
+    // created with, except `--effort ultracode`, which runs at xhigh — all a
+    // transcript can tell of it.
+    let lastRun = resuming && isClaudeEffortLevel(opts.effort) ? opts.effort : undefined;
+    if (lastRun === 'xhigh' && flagValue(extra, '--effort')?.toLowerCase() === 'ultracode') lastRun = undefined;
+    if (lastRun) extra = withoutFlag(extra, '--effort');
     args.push(...extra);
     // Crabyard's defaults: sessions start in bypassPermissions mode at xhigh
-    // effort (Claude Code silently lowers the effort for models without it),
-    // unless the session's own arguments choose otherwise.
+    // effort (Claude Code silently lowers it for models without it), unless
+    // the session's own arguments choose otherwise.
     const has = (flag: string) => extra.some((a) => a === flag || a.startsWith(`${flag}=`));
     if (!has('--permission-mode') && !has('--dangerously-skip-permissions')) args.push('--permission-mode', 'bypassPermissions');
-    if (!has('--effort')) args.push('--effort', 'xhigh');
+    if (lastRun) args.push('--effort', lastRun);
+    else if (!has('--effort')) args.push('--effort', 'xhigh');
     return args;
+  }
+
+  lastConversationEffort(cliSessionId: string, projectPath: string, configDir?: string): string | undefined {
+    const transcript = this.getTranscriptPath(cliSessionId, projectPath, configDir);
+    return transcript ? readLastTranscriptEffort(transcript) : undefined;
+  }
+
+  /**
+   * A tab opened on a background job follows the job: attached again while it
+   * runs, else resumed on the conversation it was last on. A conversation
+   * handed off to a background session (← on an empty prompt) goes on there,
+   * once that session runs or has content. And a conversation a live
+   * background session holds is attached to: the CLI refuses `-r` for it.
+   */
+  resolveConversation(cliSessionId: string, projectPath: string, configDir?: string, attachShort?: string): ResolvedConversation {
+    const root = configDir ?? path.join(os.homedir(), '.claude');
+    let target = cliSessionId;
+    let reason: ResolvedConversation['reason'];
+    if (attachShort) {
+      const job = backgroundJob(attachShort, root);
+      if (job && job.sessionId !== cliSessionId) reason = 'job';
+      if (job?.live) return { cliSessionId: job.sessionId, attachShort, ...(reason ? { reason } : {}) };
+      if (job) target = job.sessionId;
+    }
+    const transcript = this.getTranscriptPath(target, projectPath, configDir);
+    const next = transcript ? readContinuedIn(transcript) : undefined;
+    if (next && (liveBackgroundJob(next, root) || transcriptHasMessages(path.join(path.dirname(transcript!), `${next}.jsonl`)))) {
+      target = next;
+      reason = 'handoff';
+    }
+    return { cliSessionId: target, attachShort: liveBackgroundJob(target, root), ...(reason ? { reason } : {}) };
   }
 
   async installHooks(win?: BrowserWindow | null, _projectPath?: string): Promise<void> {
@@ -236,6 +286,26 @@ export class ClaudeProvider implements CliProvider {
     }
     return null;
   }
+}
+
+/** The value of `flag` in `args` (`flag value` or `flag=value`), if present. */
+function flagValue(args: string[], flag: string): string | undefined {
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === flag) return args[i + 1];
+    if (args[i].startsWith(`${flag}=`)) return args[i].slice(flag.length + 1);
+  }
+  return undefined;
+}
+
+/** `args` without `flag` (either `flag value` or `flag=value`). */
+function withoutFlag(args: string[], flag: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === flag) { i++; continue; }
+    if (args[i].startsWith(`${flag}=`)) continue;
+    out.push(args[i]);
+  }
+  return out;
 }
 
 /** @internal Test-only: reset cached binary path */

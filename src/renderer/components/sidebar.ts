@@ -17,8 +17,9 @@ import { gitChangeCount, onChange as onGitStatusChange } from '../git-status.js'
 import { ICON_SESSIONS, ICON_GIT } from '../icons.js';
 import { onLocaleChange, t } from '../i18n.js';
 import { getStatus } from '../session-activity.js';
-import { renderConversationTree, setConversationFilter } from './conversation-tree.js';
+import { isConversationFilterActive, refreshConversationTitles, renderConversationTree, setConversationFilter } from './conversation-tree.js';
 import {
+  getConversations,
   isConversationsLoading,
   onClaudeHistoryChange,
   refreshConversations,
@@ -75,7 +76,11 @@ export function initSidebar(): void {
     applySidebarCollapsed();
     render();
   });
-  onClaudeHistoryChange(render);
+  // A new list can carry names across a hand-off, show a CLI /rename, or let an old name go.
+  onClaudeHistoryChange(() => {
+    appState.reconcileConversationTitles(getConversations() ?? []);
+    render();
+  });
   // appState.load() renders the sidebar before initI18n() sets the saved locale.
   onLocaleChange(render);
   // New or closed sessions write transcripts; pick them up shortly after.
@@ -83,6 +88,21 @@ export function initSidebar(): void {
   appState.on('session-removed', scheduleHistoryRefresh);
   setInterval(refreshVisibleHistory, HISTORY_POLL_MS);
   window.addEventListener('focus', refreshVisibleHistory);
+  // Claude Code made or removed a conversation, or a background session (/fork)
+  // started or ended: main watches for that, so it shows without the poll's wait.
+  window.vibeyard.claudeHistory.onChanged(() => {
+    if (document.visibilityState !== 'hidden') void refreshConversations(false, true);
+  });
+  // A tab that moved to another conversation (/clear, /resume or /branch inside
+  // the CLI) changes which rows are open; its new transcript lands soon after.
+  let openIds = openConversationIds();
+  appState.on('session-changed', () => {
+    const next = openConversationIds();
+    if (next === openIds) return;
+    openIds = next;
+    render();
+    scheduleHistoryRefresh();
+  });
   appState.on('project-added', render);
   appState.on('project-removed', (id) => {
     if (typeof id === 'string') {
@@ -95,6 +115,14 @@ export function initSidebar(): void {
   appState.on('session-added', render);
   appState.on('session-removed', render);
   appState.on('layout-changed', render);
+  // A tab rename shows on its conversation's row right away: in place, so a
+  // click that finished the rename still lands. With the search box in use the
+  // name decides what matches, so the tree is rebuilt, once the pointer is up.
+  appState.on('conversation-titles-changed', () => {
+    appState.reconcileConversationTitles(getConversations() ?? []);
+    if (isConversationFilterActive()) renderWhenPointerUp();
+    else refreshConversationTitles(projectListEl);
+  });
 
   onUnreadChange(render);
   // Keep the active project's Git tab badge in sync. Surgical when the button is
@@ -207,6 +235,30 @@ function initConversationToolbar(): void {
     input.focus();
   });
   convToolbarEl.querySelector('.conv-refresh')?.addEventListener('click', () => { void refreshConversations(true); });
+}
+
+let pointerDown = false;
+let renderAfterPointer = false;
+document.addEventListener('pointerdown', () => { pointerDown = true; }, true);
+document.addEventListener('pointerup', () => {
+  pointerDown = false;
+  if (!renderAfterPointer) return;
+  renderAfterPointer = false;
+  setTimeout(render, 0); // after the click this pointerup makes
+}, true);
+
+function renderWhenPointerUp(): void {
+  if (pointerDown) renderAfterPointer = true;
+  else render();
+}
+
+/** The conversations open in tabs, as a comparable key. */
+function openConversationIds(): string {
+  const ids: string[] = [];
+  for (const project of appState.projects) {
+    for (const session of project.sessions) if (session.cliSessionId) ids.push(session.cliSessionId);
+  }
+  return ids.sort().join(',');
 }
 
 function refreshVisibleHistory(): void {
